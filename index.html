@@ -111,7 +111,7 @@
 
     <!-- ===== COHORTES ===== -->
     <div class="subview" id="sub-cohortes">
-      <div class="helpbox">Analiza el <b>100% de las líneas</b> (entregadas y pendientes) según la columna <b>DESCRIPCION COHORTE / COHORTE</b> del reporte. Las variables numéricas se convierten a número antes de sumar para evitar concatenaciones o cifras erróneas.</div>
+      <div class="helpbox">Clasifica las líneas en grandes grupos de salud leyendo la columna <b>DESCRIPCION CIE 10</b> (Cardiovascular/HTA, Diabéticos, Antibióticos, Maternas, Nutrición, Trasplantados…). Una línea está <b>entregada</b> si Diferencia = 0 y <b>pendiente</b> si Diferencia &lt; 0. Las unidades se convierten a número antes de sumar.</div>
       <div class="helpbox" id="cohortesDiag" style="display:none;"></div>
       <div class="toolbar">
         <div class="field"><label>Cohorte</label><select id="fCohorte"><option value="">Todas las cohortes</option></select></div>
@@ -122,8 +122,8 @@
       <div class="table-wrap">
         <table class="data" id="tblCohortes">
           <thead><tr>
-            <th>Cohorte</th><th>Pacientes</th><th>Líneas</th><th>Entregadas</th><th>Pendientes</th>
-            <th>% Cumpl.</th><th>Unidades</th><th>Códigos</th><th>Bodegas</th>
+            <th>Cohorte (CIE-10)</th><th>Pacientes</th><th>Líneas</th><th>% Part.</th><th>Entregadas</th><th>Pendientes</th>
+            <th>% Cumpl.</th><th>Und. entregadas</th><th>Und. pendientes</th>
           </tr></thead><tbody></tbody>
         </table>
       </div>
