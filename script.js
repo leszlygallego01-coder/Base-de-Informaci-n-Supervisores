@@ -8,7 +8,7 @@
 /* ---------- Estado global ---------- */
 var RAW = [];        // filas enriquecidas (nivel línea)
 var META = { archivo:'', fecha:'', filasCrudas:0, filasUsadas:0 };
-var FILTROS = { bodega:'', contrato:'', eps:'', mes:'' };
+var FILTROS = { bodega:'', eps:'', depto:'', zona:'', contrato:'' };
 
 /* ---------- Utilidades DOM ---------- */
 function $(s,c){ return (c||document).querySelector(s); }
@@ -29,23 +29,23 @@ function pctCls(p){ return p>=90?'pct-good':(p>=70?'pct-mid':'pct-bad'); }
 /* ---------- Alias de columnas del Reporte ---------- */
 /* Cada campo lógico -> lista de posibles encabezados (normalizados sin acentos) */
 var ALIASES = {
-  documento:      ['NUMERO DOCUMENTO','NRO DOCUMENTO','NUM DOCUMENTO','DOCUMENTO','NO DOCUMENTO','NUMERO DE DOCUMENTO','CONSECUTIVO'],
-  bodega:         ['BODEGA','PUNTO','PUNTO DISPENSACION','PUNTO DE DISPENSACION','SUCURSAL','FARMACIA','SEDE'],
+  tipoComp:       ['TIPO COMPROBANTE','TIPO DE COMPROBANTE','COMPROBANTE'],
+  documento:      ['DOCUMENTO','NUMERO DOCUMENTO','NRO DOCUMENTO','NUM DOCUMENTO','NO DOCUMENTO','NUMERO DE DOCUMENTO','CONSECUTIVO'],
+  bodega:         ['SUCURSAL','BODEGA','PUNTO','PUNTO DISPENSACION','PUNTO DE DISPENSACION','SEDE','FARMACIA'],
   estado:         ['ESTADO','ESTADO DISPENSACION','ESTADO REGISTRO'],
   contrato:       ['CONTRATO','TIPO CONTRATO','MODALIDAD','REGIMEN CONTRATO'],
+  sigla:          ['SIGLA COMERCIAL','SIGLA','SIGLA EPS','SIGLA ENTIDAD'],
   eps:            ['EPS','ENTIDAD','ASEGURADOR','ASEGURADORA','ENTIDAD RESPONSABLE','PAGADOR'],
+  diferencia:     ['DIFERENCIA','DIF','SALDO DIFERENCIA'],
   entregado:      ['CANTIDAD ENTREGADA','CANT ENTREGADA','ENTREGADO','UNIDADES ENTREGADAS','CANTIDAD DISPENSADA','DISPENSADO'],
   formulado:      ['CANTIDAD FORMULADA','CANT FORMULADA','FORMULADO','UNIDADES FORMULADAS','CANTIDAD ORDENADA','PRESCRITO','CANTIDAD PRESCRITA'],
-  pendiente:      ['CANTIDAD PENDIENTE','CANT PENDIENTE','PENDIENTE','SALDO','UNIDADES PENDIENTES'],
-  soporte:        ['SOPORTE','TIENE SOPORTE','SOPORTE EVENTO','NRO SOPORTE','NUMERO SOPORTE','NO SOPORTE','FACTURA','AUTORIZACION'],
-  codigo:         ['CODIGO','CODIGO MEDICAMENTO','COD MEDICAMENTO','CUM','COD PRODUCTO','CODIGO PRODUCTO','COD'],
-  descripcion:    ['DESCRIPCION','DESCRIPCION MEDICAMENTO','MEDICAMENTO','PRODUCTO','DESCRIPCION PRODUCTO','NOMBRE MEDICAMENTO','ARTICULO'],
-  cie10:          ['DESCRIPCION CIE 10','DESCRIPCION CIE10','CIE 10','CIE10','DIAGNOSTICO','DX','DESCRIPCION DIAGNOSTICO','DIAGNOSTICO PRINCIPAL'],
-  codcie:         ['CODIGO CIE 10','CODIGO CIE10','COD CIE 10','COD CIE10','CIE'],
-  paciente:       ['DOCUMENTO PACIENTE','IDENTIFICACION','IDENTIFICACION PACIENTE','NRO IDENTIFICACION','CEDULA','DOC PACIENTE','ID PACIENTE','NUMERO IDENTIFICACION'],
-  paciNombre:     ['NOMBRE PACIENTE','PACIENTE','NOMBRE DEL PACIENTE','NOMBRE'],
+  soporte:        ['SOPORTE','TIENE SOPORTE','SOPORTE EVENTO','NRO SOPORTE','NUMERO SOPORTE','NO SOPORTE','NUMERO SOPORTE EVENTO'],
+  codigo:         ['CODIGO','CODIGO MEDICAMENTO','COD MEDICAMENTO','CUM','COD PRODUCTO','CODIGO PRODUCTO','COD','CODIGO ARTICULO'],
+  descripcion:    ['DESCRIPCION','DESCRIPCION MEDICAMENTO','MEDICAMENTO','PRODUCTO','DESCRIPCION PRODUCTO','NOMBRE MEDICAMENTO','ARTICULO','DESCRIPCION ARTICULO'],
+  cohorte:        ['DESCRIPCION COHORTE','COHORTE','DESC COHORTE','NOMBRE COHORTE','GRUPO COHORTE','PROGRAMA'],
+  paciente:       ['DOCUMENTO PACIENTE','IDENTIFICACION','IDENTIFICACION PACIENTE','NRO IDENTIFICACION','CEDULA','DOC PACIENTE','ID PACIENTE','NUMERO IDENTIFICACION','DOCUMENTO AFILIADO'],
   usuarioCrea:    ['USUARIO CREACION','USUARIO CREA','USUARIO','USUARIO DISPENSA','CREADO POR','DISPENSADO POR','USUARIO REGISTRO'],
-  fecha:          ['FECHA','FECHA DISPENSACION','FECHA DISPENSA','FECHA CREACION','FECHA ENTREGA','FECHA REGISTRO','FECHA DOCUMENTO']
+  fecha:          ['FECHA','FECHA DISPENSACION','FECHA DISPENSA','FECHA CREACION','FECHA ENTREGA','FECHA REGISTRO','FECHA DOCUMENTO','FECHA COMPROBANTE']
 };
 
 /* Placeholder para siguientes bloques */
@@ -141,7 +141,7 @@ function esFragmento(fila, mapa){
    concatenando texto en las columnas de texto vacías. */
 function fusionarFragmentos(rows, mapa){
   var out = [], dropFrag = 0;
-  var textCols = {}; [mapa.descripcion,mapa.cie10,mapa.paciNombre].forEach(function(c){ if(c>=0) textCols[c]=1; });
+  var textCols = {}; [mapa.descripcion,mapa.cohorte].forEach(function(c){ if(c>=0) textCols[c]=1; });
   for(var i=0;i<rows.length;i++){
     var f = rows[i];
     if(out.length && esFragmento(f, mapa)){
@@ -166,7 +166,7 @@ function esCompleta(fila, mapa){
   var desc = mapa.descripcion>=0 ? norm(fila[mapa.descripcion]) : '';
   var tieneCant = (mapa.entregado>=0 && norm(fila[mapa.entregado])!=='') ||
                   (mapa.formulado>=0 && norm(fila[mapa.formulado])!=='') ||
-                  (mapa.pendiente>=0 && norm(fila[mapa.pendiente])!=='');
+                  (mapa.diferencia>=0 && norm(fila[mapa.diferencia])!=='');
   if(!doc && !bod) return false;
   if(!desc && !tieneCant && mapa.codigo>=0 && !norm(fila[mapa.codigo])) return false;
   return true;
@@ -207,21 +207,21 @@ function procesarAoA(aoa){
 function cel(f, idx){ return idx>=0 ? f[idx] : ''; }
 function filaAObjeto(f, m){
   return {
+    tipoComp:    norm(cel(f,m.tipoComp)),
     documento:   norm(cel(f,m.documento)),
     bodega:      norm(cel(f,m.bodega)) || 'SIN BODEGA',
     estado:      up(cel(f,m.estado)),
     contrato:    up(cel(f,m.contrato)),
+    sigla:       norm(cel(f,m.sigla)),
     epsRaw:      norm(cel(f,m.eps)),
+    diferenciaRaw: norm(cel(f,m.diferencia)),
     entregado:   toNum(cel(f,m.entregado)),
     formulado:   toNum(cel(f,m.formulado)),
-    pendienteRaw:toNum(cel(f,m.pendiente)),
     soporteRaw:  norm(cel(f,m.soporte)),
     codigo:      norm(cel(f,m.codigo)),
     descripcion: norm(cel(f,m.descripcion)),
-    cie10:       norm(cel(f,m.cie10)),
-    codcie:      norm(cel(f,m.codcie)),
+    cohorteRaw:  norm(cel(f,m.cohorte)),
     paciente:    norm(cel(f,m.paciente)),
-    paciNombre:  norm(cel(f,m.paciNombre)),
     usuarioCrea: norm(cel(f,m.usuarioCrea)) || 'SIN USUARIO',
     fechaRaw:    norm(cel(f,m.fecha))
   };
@@ -231,115 +231,141 @@ function filaAObjeto(f, m){
    ENRIQUECIMIENTO (nivel línea)
    ================================================================ */
 
-/* Consolidación de EPS: agrupa variantes bajo un nombre común */
+/* Consolidación de EPS a partir de la columna SIGLA COMERCIAL (o sigla / EPS).
+   Reglas del negocio (prioridad de arriba hacia abajo). */
 var EPS_MAP = [
-  { re:/NUEVA\s*EPS|NUEVAEPS/,        g:'NUEVA EPS' },
-  { re:/SANITAS|EPS\s*SANITAS/,       g:'SANITAS' },
-  { re:/SURA|EPS\s*SURA/,             g:'SURA' },
-  { re:/SALUD\s*TOTAL/,               g:'SALUD TOTAL' },
-  { re:/COMPENSAR/,                    g:'COMPENSAR' },
-  { re:/FAMISANAR/,                    g:'FAMISANAR' },
-  { re:/COOSALUD/,                     g:'COOSALUD' },
-  { re:/MUTUAL\s*SER|MUTUALSER/,      g:'MUTUAL SER' },
-  { re:/CAJACOPI/,                     g:'CAJACOPI' },
-  { re:/ASMET/,                        g:'ASMET SALUD' },
-  { re:/EMSSANAR|EMSANAR/,            g:'EMSSANAR' },
-  { re:/CAPITAL\s*SALUD/,             g:'CAPITAL SALUD' },
-  { re:/CAPRESOCA/,                    g:'CAPRESOCA' },
-  { re:/COMFA/,                        g:'COMFAMILIAR' },
-  { re:/MALLAMAS|MALLAM/,             g:'MALLAMAS' }
+  { re:/NUEVA\s*EMPRESA\s*PROMOTORA|NUEVA\s*EPS|NUEVAEPS/,  g:'NUEVA EPS' },
+  { re:/ASMET/,                                             g:'ASMET SALUD' },
+  { re:/COOSALUD/,                                           g:'COOSALUD' },
+  { re:/SANITAS/,                                            g:'SANITAS' },
+  { re:/FAMILIAR\s*DE\s*COLOMBIA|EPS\s*FAMILIAR|^FAMILIAR/, g:'FAMILIAR' },
+  { re:/FAMISANAR/,                                          g:'FAMISANAR' }
 ];
-function consolidarEps(raw){
-  var s = sinAcentos(raw);
+/* Consolida usando primero la SIGLA COMERCIAL; si no hay, usa EPS cruda. */
+function consolidarEps(o){
+  var base = o.sigla || o.epsRaw;
+  var s = sinAcentos(base);
   if(!s) return 'SIN EPS';
   for(var i=0;i<EPS_MAP.length;i++){ if(EPS_MAP[i].re.test(s)) return EPS_MAP[i].g; }
-  return up(raw);
+  return 'SIN EPS';
+}
+
+/* ---------- Homologación geográfica por BODEGA / SUCURSAL ----------
+   Cruza el código (p.ej. "M102") contra Zona y Departamento.
+   Amplia libremente este diccionario con tus códigos reales. */
+var ZONA_MAP = {
+  'M15':  { zona:'ZONA TOLIMA',       depto:'TOLIMA' },
+  'M102': { zona:'ZONA NARI\u00d1O',       depto:'NARI\u00d1O' },
+  'M107': { zona:'ZONA EJE CAFETERO', depto:'RISARALDA' },
+  'M108': { zona:'ZONA EJE CAFETERO', depto:'CALDAS' },
+  'M109': { zona:'ZONA EJE CAFETERO', depto:'QUINDIO' },
+  'M110': { zona:'ZONA VALLE',        depto:'VALLE DEL CAUCA' },
+  'M111': { zona:'ZONA CAUCA',        depto:'CAUCA' },
+  'M112': { zona:'ZONA HUILA',        depto:'HUILA' },
+  'M113': { zona:'ZONA CUNDINAMARCA', depto:'CUNDINAMARCA' },
+  'M114': { zona:'ZONA ANTIOQUIA',    depto:'ANTIOQUIA' }
+};
+/* Extrae el código de bodega (algo tipo M seguido de dígitos) del texto. */
+function codigoBodega(bodega){
+  var s = up(bodega);
+  var m = s.match(/\bM\s*-?\s*(\d{1,4})\b/);
+  if(m) return 'M'+m[1];
+  m = s.match(/^\s*(\d{1,4})\b/);
+  if(m) return 'M'+m[1];
+  return '';
+}
+function homologarGeo(bodega){
+  var cod = codigoBodega(bodega);
+  if(cod && ZONA_MAP[cod]) return { zona:ZONA_MAP[cod].zona, depto:ZONA_MAP[cod].depto, codigo:cod };
+  return { zona:'SIN ZONA', depto:'SIN DEPARTAMENTO', codigo:cod };
 }
 
 /* Estado inactivo */
 function esInactivo(estado){
   var s = sinAcentos(estado);
-  return s.indexOf('INACTIV')>=0 || s==='ANULAD' || s.indexOf('ANULAD')>=0;
+  return s.indexOf('INACTIV')>=0 || s.indexOf('ANULAD')>=0;
 }
 
-/* Contrato evento */
+/* Contrato evento vs cápita */
 function esEvento(contrato){ return sinAcentos(contrato).indexOf('EVENTO')>=0; }
+function esCapita(contrato){ var s=sinAcentos(contrato); return s.indexOf('CAPITA')>=0 || s.indexOf('CAPITACION')>=0; }
 
 /* ¿Tiene soporte esta línea? */
 function lineaTieneSoporte(o){
   var s = sinAcentos(o.soporteRaw);
   if(!s) return false;
-  if(/^(NO|SIN|N\/A|NA|0|FALSE|-)$/.test(s)) return false;
+  if(/^(NO|SIN|N\/A|NA|0|FALSE|-|0\.0)$/.test(s)) return false;
   return true;
 }
 
-/* Pendiente efectivo por línea */
-function pendienteLinea(o){
-  if(o.pendienteRaw>0) return o.pendienteRaw;
-  var d = o.formulado - o.entregado;
-  return d>0 ? d : 0;
+/* Regla global: una línea está ENTREGADA si Diferencia === 0.
+   Diferencia < 0 => pendiente. Se convierte estrictamente a número. */
+function difLinea(o){
+  if(o.diferenciaRaw!==''){ return toNum(o.diferenciaRaw); }
+  // respaldo: entregado - formulado (negativo = pendiente)
+  return o.entregado - o.formulado;
 }
 
-/* Mes a partir de la fecha (varios formatos) */
-function extraerMes(raw){
-  if(!raw) return '';
-  var s = String(raw).trim();
-  var m;
-  if((m=s.match(/^(\d{4})[\-\/](\d{1,2})/))) return m[1]+'-'+('0'+m[2]).slice(-2);
-  if((m=s.match(/^(\d{1,2})[\-\/](\d{1,2})[\-\/](\d{2,4})/))){
-    var y=m[3].length===2?'20'+m[3]:m[3]; return y+'-'+('0'+m[2]).slice(-2);
-  }
-  // serial de Excel
-  var n = parseFloat(s);
-  if(!isNaN(n) && n>20000 && n<80000){
-    var d = new Date(Math.round((n-25569)*86400*1000));
-    return d.getUTCFullYear()+'-'+('0'+(d.getUTCMonth()+1)).slice(-2);
-  }
-  return '';
+/* Fecha -> Date (para rango) y mes YYYY-MM */
+function parseFecha(raw){
+  if(!raw) return null;
+  var s = String(raw).trim(); var m;
+  if((m=s.match(/^(\d{4})[\-\/](\d{1,2})[\-\/](\d{1,2})/))) return new Date(+m[1],+m[2]-1,+m[3]);
+  if((m=s.match(/^(\d{1,2})[\-\/](\d{1,2})[\-\/](\d{2,4})/))){ var y=m[3].length===2?2000+ +m[3]:+m[3]; return new Date(y,+m[2]-1,+m[1]); }
+  var n=parseFloat(s);
+  if(!isNaN(n) && n>20000 && n<80000){ return new Date(Math.round((n-25569)*86400*1000)); }
+  return null;
 }
+function fmtFecha(d){ if(!d) return '-'; return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 
 function claveDoc(o){ return o.documento+'\u241f'+o.bodega; }
 
 function enriquecer(objs){
   return objs.map(function(o){
-    o.eps = consolidarEps(o.epsRaw);
+    o.eps = consolidarEps(o);
+    var geo = homologarGeo(o.bodega);
+    o.zona = geo.zona; o.depto = geo.depto; o.codBodega = geo.codigo;
     o.inactivo = esInactivo(o.estado);
     o.activo = !o.inactivo;
     o.evento = esEvento(o.contrato);
+    o.capita = esCapita(o.contrato);
     o.tieneSoporte = lineaTieneSoporte(o);
-    o.pendiente = pendienteLinea(o);
-    o.entregadaLinea = o.pendiente<=0 && (o.entregado>0 || o.formulado>0 || o.entregado===o.formulado);
-    if(o.formulado>0) o.entregadaLinea = o.entregado>=o.formulado;
-    o.mes = extraerMes(o.fechaRaw);
+    o.dif = difLinea(o);
+    o.entregadaLinea = (o.dif === 0);
+    o.pendiente = o.dif < 0 ? Math.abs(o.dif) : 0;
+    o.cohorte = o.cohorteRaw ? up(o.cohorteRaw) : 'SIN COHORTE';
+    o.fechaDate = parseFecha(o.fechaRaw);
     o.clave = claveDoc(o);
     return o;
   });
 }
 
 /* ---------- Agrupaciones ---------- */
-/* Aplica filtros globales a un conjunto de líneas */
 function aplicarFiltros(lineas){
   return lineas.filter(function(o){
     if(FILTROS.bodega && sinAcentos(o.bodega).indexOf(sinAcentos(FILTROS.bodega))<0) return false;
-    if(FILTROS.contrato && o.contrato!==FILTROS.contrato) return false;
     if(FILTROS.eps && o.eps!==FILTROS.eps) return false;
-    if(FILTROS.mes && o.mes!==FILTROS.mes) return false;
+    if(FILTROS.depto && o.depto!==FILTROS.depto) return false;
+    if(FILTROS.zona && o.zona!==FILTROS.zona) return false;
+    if(FILTROS.contrato && o.contrato!==FILTROS.contrato) return false;
     return true;
   });
 }
 function soloActivas(lineas){ return lineas.filter(function(o){ return o.activo; }); }
 
-/* Agrupa líneas en dispensas (Documento+Bodega). Una dispensa entregada
-   solo si TODAS sus líneas quedaron entregadas. */
+/* Agrupa líneas en dispensas (Documento+Bodega).
+   Entregada solo si TODAS sus líneas tienen Diferencia === 0. */
 function agruparDispensas(lineas){
   var map = {};
   lineas.forEach(function(o){
     var k = o.clave;
     if(!map[k]) map[k] = { clave:k, documento:o.documento, bodega:o.bodega, contrato:o.contrato,
-      eps:o.eps, mes:o.mes, usuarioCrea:o.usuarioCrea, lineas:[], evento:o.evento, algunSoporte:false, fechaRaw:o.fechaRaw };
+      eps:o.eps, zona:o.zona, depto:o.depto, usuarioCrea:o.usuarioCrea, lineas:[],
+      evento:o.evento, capita:o.capita, algunSoporte:false, fechaRaw:o.fechaRaw, fechaDate:o.fechaDate };
     map[k].lineas.push(o);
     if(o.tieneSoporte) map[k].algunSoporte = true;
     if(o.evento) map[k].evento = true;
+    if(o.capita) map[k].capita = true;
   });
   return Object.keys(map).map(function(k){
     var d = map[k];
@@ -401,7 +427,7 @@ function renderDispensa(){
   var disp = agruparDispensas(lineas);
   var byBod = {};
   disp.forEach(function(d){
-    if(!byBod[d.bodega]) byBod[d.bodega]={ bodega:d.bodega, total:0, entregadas:0 };
+    if(!byBod[d.bodega]) byBod[d.bodega]={ bodega:d.bodega, zona:d.zona, depto:d.depto, total:0, entregadas:0 };
     byBod[d.bodega].total++;
     if(d.entregada) byBod[d.bodega].entregadas++;
   });
@@ -494,43 +520,31 @@ var SOP_CACHE=[], SOP_TOT={}, SOP_DISP=[];
 /* ================================================================
    RENDER 3 — COHORTES
    ================================================================ */
-var COHORTES_DEF = [
-  { key:'VIH',     label:'VIH',           dxs:['VIH','HIV','INMUNODEFICIENCIA HUMANA','SINDROME DE INMUNODEFICIENCIA'],meds:['TENOFOVIR','EMTRICITABINA','DOLUTEGRAVIR','EFAVIRENZ','LAMIVUDINA','ABACAVIR','RALTEGRAVIR','DARUNAVIR','RITONAVIR','LOPINAVIR','ZIDOVUDINA']},
-  { key:'DIABETES',label:'Diabetes',       dxs:['DIABET','MELLITUS','HIPERGLUCEMIA'],meds:['METFORM','INSULINA','GLIMEPIRIDA','GLIBENCLAMIDA','GLICLAZIDA','EMPAGLIFLOZINA','SITAGLIPTINA','VILDAGLIPTINA','LINAGLIPTINA','CANAGLIFLOZINA','DAPAGLIFLOZINA']},
-  { key:'HTA',     label:'Hipertensión',   dxs:['HIPERTENS','ENFERMEDAD HIPERTENSIVA'],meds:['LOSARTAN','ENALAPRIL','CAPTOPRIL','VALSARTAN','AMLODIPINO','HIDROCLOROTIAZIDA','METOPROLOL','CARVEDILOL','TELMISARTAN','RAMIPRIL']},
-  { key:'ASMA',    label:'Asma / EPOC',    dxs:['ASMA','EPOC','ENFERMEDAD PULMONAR OBSTRUCTIVA','BRONQUITIS CRONICA','BRONCOESPASMO'],meds:['SALMETEROL','FLUTICASONA','BUDESONIDA','IPRATROPIO','TIOTROPIO','MONTELUKAST','SALBUTAMOL']},
-  { key:'EPILEPSIA',label:'Epilepsia',     dxs:['EPILEPS','CONVULSIV','CRISIS EPIL'],meds:['CARBAMAZEPINA','FENITOINA','VALPROATO','LEVETIRACETAM','LAMOTRIGINA','TOPIRAMATO','GABAPENTINA','CLONAZEPAM']},
-  { key:'CANCER',  label:'Oncología',      dxs:['CANCER','NEOPLAS','TUMOR','MALIGN','ONCOLOG','LEUCEMIA','LINFOMA','CARCINOMA','MELANOMA'],meds:['CICLOFOSFAMIDA','METOTREXATO','CISPLATINO','DOXORUBICINA','PACLITAXEL','RITUXIMAB','IMATINIB','TRASTUZUMAB','BEVACIZUMAB']},
-  { key:'MENTAL',  label:'Salud mental',   dxs:['DEPRESI','ANSIEDAD','BIPOLAR','ESQUIZOFREN','PSICOSIS','TRASTORNO AFECTIVO','EPISODIO DEPRESIVO'],meds:['SERTRALINA','FLUOXETINA','CITALOPRAM','ESCITALOPRAM','PAROXETINA','VENLAFAXINA','DULOXETINA','QUETIAPINA','OLANZAPINA','RISPERIDONA','ARIPIPRAZOL','CLOZAPINA','HALOPERIDOL']},
-  { key:'RENAL',   label:'Enfermedad renal',dxs:['ENFERMEDAD RENAL','INSUFICIENCIA RENAL','NEFROPATIA','DIALISIS','HEMODIALISIS','FALLA RENAL'],meds:['ERITROPOYETINA','DARBEPOETINA','SEVELAMER']},
-  { key:'TIROIDES',label:'Tiroides',       dxs:['TIROID','HIPOTIROID','HIPERTIROID','BOCIO','HASHIMOTO'],meds:['LEVOTIROXINA','METIMAZOL']},
-  { key:'ARTRITIS',label:'Artritis / Autoinmune',dxs:['ARTRITIS','LUPUS','AUTOINMUNE','REUMATO','ESCLERODER','POLIARTRITIS'],meds:['AZATIOPRINA','LEFLUNOMIDA','SULFASALAZINA','HIDROXICLOROQUINA','ADALIMUMAB','ETANERCEPT','INFLIXIMAB','TOCILIZUMAB']},
-  { key:'CARDIO',  label:'Cardiovascular', dxs:['CARDIO','MIOCARD','INSUFICIENCIA CARDIACA','CORONARI','INFARTO','ANGINA','ARRITMIA','FIBRILACION AURICULAR'],meds:['ATORVASTATINA','ROSUVASTATINA','CLOPIDOGREL','ENOXAPARINA','WARFARINA','DIGOXINA','AMIODARONA']},
-  { key:'HEPATIC', label:'Hepático',       dxs:['HEPAT','CIRROSIS','HEPATITIS','HIGADO GRASO','ESTEATOSIS HEPATICA'],meds:['ENTECAVIR','RIBAVIRINA','SOFOSBUVIR','URSODIOL']},
-  { key:'OFTALMO', label:'Oftalmología',   dxs:['OFTALM','GLAUCOMA','CATARATA','RETIN','MACUL','CONJUNTIV'],meds:['LATANOPROST','TIMOLOL','DORZOLAMIDA','BRINZOLAMIDA','TRAVOPROST','BIMATOPROST']}
-];
-
-function perteneceCohorte(linea, def){
-  var cie = sinAcentos(linea.cie10);
-  var des = sinAcentos(linea.descripcion);
-  if(cie && def.dxs.some(function(d){ return cie.indexOf(d)>=0; })) return true;
-  if(des && def.meds.some(function(m){ return des.indexOf(m)>=0; })) return true;
-  return false;
-}
+/* Cohortes ahora se toman de la columna DESCRIPCION COHORTE del reporte.
+   Ya NO se clasifica por CIE-10 ni por nombre de medicamento.
+   Se usa estrictamente el valor de la columna COHORTE. */
 
 function renderCohortes(){
   var lineas = soloActivas(aplicarFiltros(RAW));
-  var cohortes = COHORTES_DEF.map(function(def){
-    var match = lineas.filter(function(l){ return perteneceCohorte(l,def); });
-    var pacSet={},codSet={},bodSet={},ent=0,pen=0,uni=0;
-    match.forEach(function(l){
-      pacSet[l.paciente]=1; codSet[l.codigo]=1; bodSet[l.bodega]=1;
-      uni+=l.entregado; pen+=l.pendiente; if(l.entregadaLinea) ent++;
-    });
-    return { key:def.key, label:def.label, lineas:match.length, pacients:Object.keys(pacSet).length,
-      entregadas:ent, pendientes:pen, pctC:pct1(ent,match.length),
-      unidades:Math.round(uni), codigos:Object.keys(codSet).length, bodegas:Object.keys(bodSet).length };
-  }).filter(function(c){ return c.lineas>0; });
+  // Agrupar por cohorte
+  var cohMap={};
+  lineas.forEach(function(l){
+    var c = l.cohorte || 'SIN COHORTE';
+    if(!cohMap[c]) cohMap[c]={ cohorte:c, pacSet:{}, codSet:{}, bodSet:{}, lineas:0, entregadas:0, pendientes:0, unidades:0 };
+    var g=cohMap[c];
+    g.lineas++;
+    g.pacSet[l.paciente]=1; g.codSet[l.codigo]=1; g.bodSet[l.bodega]=1;
+    // Conversión estricta a número antes de sumar
+    g.unidades += Number(l.entregado)||0;
+    g.pendientes += Number(l.pendiente)||0;
+    if(l.entregadaLinea) g.entregadas++;
+  });
+  var cohortes = Object.keys(cohMap).map(function(k){
+    var g=cohMap[k];
+    return { cohorte:g.cohorte, lineas:g.lineas, pacients:Object.keys(g.pacSet).length,
+      entregadas:g.entregadas, pendientes:g.pendientes, pctC:pct1(g.entregadas,g.lineas),
+      unidades:Math.round(g.unidades), codigos:Object.keys(g.codSet).length, bodegas:Object.keys(g.bodSet).length };
+  }).sort(function(a,b){ return b.lineas-a.lineas; });
 
   var totL=0,totP=0,totE=0,totPn=0,totU=0;
   cohortes.forEach(function(c){ totL+=c.lineas; totP+=c.pacients; totE+=c.entregadas; totPn+=c.pendientes; totU+=c.unidades; });
@@ -543,7 +557,7 @@ function renderCohortes(){
 
   var tb=$('#tblCohortes tbody'); tb.innerHTML='';
   cohortes.forEach(function(c){
-    tb.insertAdjacentHTML('beforeend','<tr><td class="txt wrapcell">'+c.label+'</td><td>'+fmt(c.pacients)+'</td><td>'+fmt(c.lineas)+'</td><td>'+
+    tb.insertAdjacentHTML('beforeend','<tr><td class="txt wrapcell">'+c.cohorte+'</td><td>'+fmt(c.pacients)+'</td><td>'+fmt(c.lineas)+'</td><td>'+
       fmt(c.entregadas)+'</td><td>'+fmt(c.pendientes)+'</td><td class="'+pctCls(c.pctC)+'">'+c.pctC+'%</td><td>'+fmt(c.unidades)+'</td><td>'+fmt(c.codigos)+'</td><td>'+c.bodegas+'</td></tr>');
   });
   if(cohortes.length){
@@ -551,32 +565,33 @@ function renderCohortes(){
       fmt(totE)+'</td><td>'+fmt(totPn)+'</td><td>'+pct1(totE,totL)+'%</td><td>'+fmt(totU)+'</td><td>-</td><td>-</td></tr>');
   }
 
-  opts($('#fCohorte'), cohortes.map(function(c){return c.label;}), true);
+  // Filtro cohorte / bodega (ahora sobre las cohortes del reporte)
+  var allCohs = cohortes.map(function(c){return c.cohorte;});
+  opts($('#fCohorte'), allCohs, true);
   var bods=[]; lineas.forEach(function(l){ if(bods.indexOf(l.bodega)<0) bods.push(l.bodega); });
   opts($('#fCohorteBodega'), bods.sort(), true);
 
-  COH_DATA = { lineas:lineas, cohortes:cohortes, defs:COHORTES_DEF };
+  COH_DATA = { lineas:lineas, cohortes:cohortes };
   renderCohortesTop();
 
   var diagBox=$('#cohortesDiag');
-  var unMatched = lineas.filter(function(l){ return !COHORTES_DEF.some(function(d){ return perteneceCohorte(l,d); }); });
-  if(unMatched.length>0){
+  var sinCoh = lineas.filter(function(l){ return l.cohorte==='SIN COHORTE'; });
+  if(sinCoh.length>0){
     diagBox.style.display='block';
-    diagBox.innerHTML='<b>'+fmt(unMatched.length)+'</b> líneas activas no clasificaron en ninguna cohorte ('+pct1(unMatched.length,lineas.length)+'% del filtrado).';
+    diagBox.innerHTML='<b>'+fmt(sinCoh.length)+'</b> líneas activas sin cohorte asignada ('+pct1(sinCoh.length,lineas.length)+'% del filtrado).';
   } else { diagBox.style.display='none'; }
 }
 var COH_DATA={};
 
 function renderCohortesTop(){
   var cLabel=$('#fCohorte').value, bLabel=$('#fCohorteBodega').value;
-  var def = COH_DATA.defs.filter(function(d){return d.label===cLabel;})[0] || null;
-  var lineas = COH_DATA.lineas;
-  if(def) lineas = lineas.filter(function(l){ return perteneceCohorte(l,def); });
+  var lineas = COH_DATA.lineas || [];
+  if(cLabel) lineas = lineas.filter(function(l){ return l.cohorte===cLabel; });
   if(bLabel) lineas = lineas.filter(function(l){ return l.bodega===bLabel; });
   var codMap={};
   lineas.forEach(function(l){
     if(!codMap[l.codigo]) codMap[l.codigo]={ codigo:l.codigo||'(sin código)', desc:l.descripcion, lineas:0, pacs:{}, pen:0 };
-    codMap[l.codigo].lineas++; codMap[l.codigo].pacs[l.paciente]=1; codMap[l.codigo].pen+=l.pendiente;
+    codMap[l.codigo].lineas++; codMap[l.codigo].pacs[l.paciente]=1; codMap[l.codigo].pen+=Number(l.pendiente)||0;
   });
   var top=Object.keys(codMap).map(function(k){ var c=codMap[k]; c.pacients=Object.keys(c.pacs).length; return c; })
     .sort(function(a,b){return b.lineas-a.lineas;}).slice(0,10);
@@ -610,11 +625,18 @@ function renderInactivas(){
   var rowsB=Object.keys(byBod).map(function(k){return byBod[k];}).sort(function(a,b){return b.total-a.total;});
   var tot=disp.length;
 
+  // Rango de fechas de las dispensas inactivas
+  var fechas = lineas.map(function(o){ return o.fechaDate; }).filter(function(d){ return d; });
+  var fMin=null,fMax=null;
+  fechas.forEach(function(d){ if(!fMin||d<fMin) fMin=d; if(!fMax||d>fMax) fMax=d; });
+  var rango = fechas.length ? (fmtFecha(fMin)+'  a  '+fmtFecha(fMax)) : 'Sin fecha';
+
   $('#statsInactivas').innerHTML =
     statCard('Dispensas inactivas', fmt(tot), 'únicas (doc+bodega)', tot>0) +
-    statCard('Líneas inactivas', fmt(lineas.length), 'filas del reporte') +
-    statCard('Usuarios', fmt(rowsU.length), 'con dispensas inactivas') +
-    statCard('Bodegas', fmt(rowsB.length), 'afectadas');
+    statCard('Líneas involucradas', fmt(lineas.length), 'filas del reporte') +
+    statCard('Usuarios creación', fmt(rowsU.length), 'distintos') +
+    statCard('Bodegas', fmt(rowsB.length), 'involucradas') +
+    '<div class="stat"><div class="label">Rango de fechas</div><div class="value" style="font-size:15px;line-height:1.35;margin-top:6px;">'+rango+'</div></div>';
 
   var tbU=$('#tblInactivasUsuario tbody'); tbU.innerHTML='';
   rowsU.forEach(function(r){ tbU.insertAdjacentHTML('beforeend','<tr><td class="txt">'+r.usuario+'</td><td>'+fmt(r.total)+'</td><td>'+pct1(r.total,tot)+'%</td></tr>'); });
@@ -643,10 +665,10 @@ function exportar(nombre, sheets){
 }
 
 function expDispensa(){
-  var head=['Bodega','Dispensas','Entregadas','Pendientes','Eficiencia %','Índice pendiente %'];
+  var head=['Bodega','Zona','Departamento','Dispensas','Entregadas','Pendientes','Eficiencia %','Índice pendiente %'];
   var rows=DISP_CACHE.map(function(r){ var p=r.total-r.entregadas;
-    return [r.bodega,r.total,r.entregadas,p,pct1(r.entregadas,r.total),pct1(p,r.total)]; });
-  rows.push(['TOTAL',DISP_TOT.totD,DISP_TOT.totE,DISP_TOT.totP,pct1(DISP_TOT.totE,DISP_TOT.totD),pct1(DISP_TOT.totP,DISP_TOT.totD)]);
+    return [r.bodega,r.zona||'',r.depto||'',r.total,r.entregadas,p,pct1(r.entregadas,r.total),pct1(p,r.total)]; });
+  rows.push(['TOTAL','','',DISP_TOT.totD,DISP_TOT.totE,DISP_TOT.totP,pct1(DISP_TOT.totE,DISP_TOT.totD),pct1(DISP_TOT.totP,DISP_TOT.totD)]);
   exportar('indicador_dispensa.xlsx',[{name:'Dispensa',data:[head].concat(rows)}]);
 }
 
@@ -661,12 +683,10 @@ function expSoporte(){
 
 function expCohortes(){
   var head=['Cohorte','Pacientes','Líneas','Entregadas','Pendientes','% Cumpl.','Unidades','Códigos','Bodegas'];
-  var rows=(COH_DATA.cohortes||[]).map(function(c){ return [c.label,c.pacients,c.lineas,c.entregadas,c.pendientes,c.pctC,c.unidades,c.codigos,c.bodegas]; });
-  var det=[['Cohorte','Documento','Bodega','Paciente','Código','Descripción','CIE10','Entregado','Pendiente','Entregada']];
+  var rows=(COH_DATA.cohortes||[]).map(function(c){ return [c.cohorte,c.pacients,c.lineas,c.entregadas,c.pendientes,c.pctC,c.unidades,c.codigos,c.bodegas]; });
+  var det=[['Cohorte','Documento','Bodega','Paciente','Código','Descripción','Entregado','Pendiente','Diferencia','Entregada']];
   (COH_DATA.lineas||[]).forEach(function(l){
-    COHORTES_DEF.forEach(function(def){
-      if(perteneceCohorte(l,def)) det.push([def.label,l.documento,l.bodega,l.paciente,l.codigo,l.descripcion,l.cie10,l.entregado,l.pendiente,l.entregadaLinea?'SÍ':'NO']);
-    });
+    det.push([l.cohorte,l.documento,l.bodega,l.paciente,l.codigo,l.descripcion,l.entregado,l.pendiente,l.dif,l.entregadaLinea?'SÍ':'NO']);
   });
   exportar('informe_cohortes.xlsx',[{name:'Resumen',data:[head].concat(rows)},{name:'Detalle',data:det}]);
 }
@@ -692,22 +712,24 @@ function renderTodo(){
 }
 
 function poblarFiltrosGlobales(){
-  var contratos={}, epss={}, meses={};
+  var contratos={}, epss={}, deptos={}, zonas={};
   RAW.forEach(function(o){
     if(o.contrato) contratos[o.contrato]=1;
     if(o.eps) epss[o.eps]=1;
-    if(o.mes) meses[o.mes]=1;
+    if(o.depto) deptos[o.depto]=1;
+    if(o.zona) zonas[o.zona]=1;
   });
   function fill(sel, arr){ sel.innerHTML='<option value="">'+sel.options[0].text+'</option>'+
     arr.sort().map(function(v){return '<option value="'+v+'">'+v+'</option>';}).join(''); }
-  fill($('#fContrato'), Object.keys(contratos));
   fill($('#fEps'), Object.keys(epss));
-  fill($('#fMes'), Object.keys(meses));
+  fill($('#fDepto'), Object.keys(deptos));
+  fill($('#fZona'), Object.keys(zonas));
+  fill($('#fContrato'), Object.keys(contratos));
 }
 
 function mostrarReporteLimpieza(rep, mapa){
   var faltan=[];
-  ['documento','bodega','estado','contrato','descripcion','entregado'].forEach(function(k){
+  ['documento','bodega','estado','contrato','diferencia','cohorte'].forEach(function(k){
     if(mapa[k]<0) faltan.push(k);
   });
   var box=$('#cleanReport');
@@ -738,8 +760,8 @@ function cargarArchivo(file){
 
       mostrarReporteLimpieza(res.rep, res.mapa);
       poblarFiltrosGlobales();
-      FILTROS={bodega:'',contrato:'',eps:'',mes:''};
-      $('#fBodega').value=''; $('#fContrato').value=''; $('#fEps').value=''; $('#fMes').value='';
+      FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:''};
+      $('#fBodega').value=''; $('#fEps').value=''; $('#fDepto').value=''; $('#fZona').value=''; $('#fContrato').value='';
       renderTodo();
 
       $('#filtersCard').style.display='block';
@@ -774,13 +796,14 @@ function initEventos(){
 
   // Filtros globales
   function onFiltro(){ if(!RAW.length) return;
-    FILTROS.bodega=$('#fBodega').value; FILTROS.contrato=$('#fContrato').value;
-    FILTROS.eps=$('#fEps').value; FILTROS.mes=$('#fMes').value; renderTodo(); }
+    FILTROS.bodega=$('#fBodega').value; FILTROS.eps=$('#fEps').value;
+    FILTROS.depto=$('#fDepto').value; FILTROS.zona=$('#fZona').value;
+    FILTROS.contrato=$('#fContrato').value; renderTodo(); }
   $('#fBodega').addEventListener('input', onFiltro);
-  ['#fContrato','#fEps','#fMes'].forEach(function(s){ $(s).addEventListener('change', onFiltro); });
+  ['#fEps','#fDepto','#fZona','#fContrato'].forEach(function(s){ $(s).addEventListener('change', onFiltro); });
   $('#btnLimpiar').addEventListener('click', function(){
-    $('#fBodega').value=''; $('#fContrato').value=''; $('#fEps').value=''; $('#fMes').value='';
-    FILTROS={bodega:'',contrato:'',eps:'',mes:''}; renderTodo();
+    $('#fBodega').value=''; $('#fEps').value=''; $('#fDepto').value=''; $('#fZona').value=''; $('#fContrato').value='';
+    FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:''}; renderTodo();
   });
 
   // Filtros cohortes / inactivas
