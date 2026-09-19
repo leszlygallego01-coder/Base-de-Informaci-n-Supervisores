@@ -46,10 +46,11 @@
   <!-- ============ FILTROS GLOBALES ============ -->
   <section class="card filters-card" id="filtersCard" style="display:none;">
     <div class="filters">
-      <div class="field"><label>Buscar bodega</label><input type="text" id="fBodega" placeholder="Nombre de la bodega…"></div>
-      <div class="field"><label>Contrato</label><select id="fContrato"><option value="">Todos</option></select></div>
+      <div class="field"><label>Buscar bodega</label><input type="text" id="fBodega" placeholder="Código o nombre…"></div>
       <div class="field"><label>EPS consolidada</label><select id="fEps"><option value="">Todas</option></select></div>
-      <div class="field"><label>Mes</label><select id="fMes"><option value="">Todos</option></select></div>
+      <div class="field"><label>Departamento</label><select id="fDepto"><option value="">Todos</option></select></div>
+      <div class="field"><label>Zona</label><select id="fZona"><option value="">Todas</option></select></div>
+      <div class="field"><label>Contrato</label><select id="fContrato"><option value="">Todos</option></select></div>
       <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" id="btnLimpiar">Limpiar</button></div>
       <div class="field push"><label>&nbsp;</label><span class="fecha-datos" id="fechaDatos"></span></div>
     </div>
@@ -65,7 +66,7 @@
     </div>
     <!-- ===== DISPENSA ===== -->
     <div class="subview active" id="sub-dispensa">
-      <div class="helpbox">Cuenta solo las dispensas con <b>Estado Activo</b> (las INACTIVO se excluyen). Una dispensa es <b>Documento + Bodega</b>: el mismo documento en dos puntos son dos dispensas. Una dispensa se considera <b>entregada</b> solo si todas sus líneas quedaron entregadas.</div>
+      <div class="helpbox">Cuenta solo las dispensas con <b>Estado Activo</b>. Una línea está <b>entregada</b> cuando su columna <b>Diferencia = 0</b>; si <b>Diferencia &lt; 0</b> queda pendiente. Una dispensa es <b>Documento + Bodega</b>: se marca entregada solo si <b>todas</b> sus líneas tienen Diferencia = 0.</div>
       <div class="toolbar"><button class="btn btn-export" id="btnExpDispensa">⬇ Exportar detalle por bodega (Excel)</button></div>
       <div class="stat-row" id="statsDispensa"></div>
       <div class="grid-2">
@@ -88,7 +89,7 @@
 
     <!-- ===== SOPORTE EVENTO ===== -->
     <div class="subview" id="sub-soporte">
-      <div class="helpbox">Sobre las dispensas de <b>contrato EVENTO totalmente entregadas</b> (Estado Activo), mide cuántas tienen soporte y cuántas no. Una dispensa cuenta «con soporte» si al menos una de sus líneas trae soporte.</div>
+      <div class="helpbox">Usa la columna <b>Contrato</b> para separar <b>EVENTO</b> de <b>CÁPITA</b>. Sobre las dispensas de <b>EVENTO activas y totalmente entregadas</b>, mide cuántas tienen soporte y cuántas no. Una dispensa cuenta «con soporte» si al menos una de sus líneas trae registro de soporte.</div>
       <div class="toolbar"><button class="btn btn-export" id="btnExpSoporte">⬇ Descargar soporte evento (Excel)</button></div>
       <div class="stat-row" id="statsSoporte"></div>
       <div class="grid-2">
@@ -110,7 +111,7 @@
 
     <!-- ===== COHORTES ===== -->
     <div class="subview" id="sub-cohortes">
-      <div class="helpbox">Clasifica cada línea activa en cohortes por el <b>diagnóstico (DESCRIPCION CIE 10)</b> y, como respaldo, por la <b>descripción del medicamento</b>. Una línea puede pertenecer a más de una cohorte.</div>
+      <div class="helpbox">Analiza el <b>100% de las líneas</b> (entregadas y pendientes) según la columna <b>DESCRIPCION COHORTE / COHORTE</b> del reporte. Las variables numéricas se convierten a número antes de sumar para evitar concatenaciones o cifras erróneas.</div>
       <div class="helpbox" id="cohortesDiag" style="display:none;"></div>
       <div class="toolbar">
         <div class="field"><label>Cohorte</label><select id="fCohorte"><option value="">Todas las cohortes</option></select></div>
@@ -138,7 +139,7 @@
 
     <!-- ===== INACTIVAS ===== -->
     <div class="subview" id="sub-inactivas">
-      <div class="helpbox">Filtra y calcula únicamente las dispensas cuyo <b>Estado</b> sea <b>INACTIVO</b>. Agrupa dispensas únicas por <b>Documento + Bodega</b> y resume líneas involucradas, usuarios de creación, bodegas y el rango de fechas.</div>
+      <div class="helpbox">Filtra únicamente las dispensas con <b>Estado = INACTIVO</b>. Agrupa dispensas únicas por <b>Documento + Bodega</b> y resume líneas involucradas, usuarios de creación, bodegas y el <b>rango de fechas</b>.</div>
       <div class="helpbox" id="inactivasDiag" style="display:none;"></div>
       <div class="toolbar">
         <div class="field"><label>Usuario creación</label><select id="fInactivasUsuario"><option value="">Todos los usuarios</option></select></div>
@@ -162,7 +163,7 @@
     </div>
   </section>
 
-  <footer class="foot">Indicadores de Dispensación · fuente única: Reporte de Dispensación · procesamiento 100% local en el navegador</footer>
+  <footer class="foot">Indicadores de Dispensación · fuente única: Reporte de Dispensación · procesamiento 100% local en el navegador · Leszly Yulipsa Gallego González</footer>
 </div>
 <div class="toast" id="toast"></div>
 <script src="script.js"></script>
