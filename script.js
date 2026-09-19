@@ -31,7 +31,8 @@ function pctCls(p){ return p>=90?'pct-good':(p>=70?'pct-mid':'pct-bad'); }
 var ALIASES = {
   tipoComp:       ['TIPO COMPROBANTE','TIPO DE COMPROBANTE','COMPROBANTE'],
   documento:      ['DOCUMENTO','NUMERO DOCUMENTO','NRO DOCUMENTO','NUM DOCUMENTO','NO DOCUMENTO','NUMERO DE DOCUMENTO','CONSECUTIVO'],
-  bodega:         ['SUCURSAL','BODEGA','PUNTO','PUNTO DISPENSACION','PUNTO DE DISPENSACION','SEDE','FARMACIA'],
+  bodega:         ['BODEGA DETALLE','BODEGA DE DETALLE','DETALLE BODEGA'],
+  bodegaAlt:      ['SUCURSAL','BODEGA','PUNTO','PUNTO DISPENSACION','SEDE','FARMACIA'],
   estado:         ['ESTADO','ESTADO DISPENSACION','ESTADO REGISTRO'],
   contrato:       ['CONTRATO','TIPO CONTRATO','MODALIDAD','REGIMEN CONTRATO'],
   sigla:          ['SIGLA COMERCIAL','SIGLA','SIGLA EPS','SIGLA ENTIDAD'],
@@ -43,6 +44,7 @@ var ALIASES = {
   codigo:         ['CODIGO','CODIGO MEDICAMENTO','COD MEDICAMENTO','CUM','COD PRODUCTO','CODIGO PRODUCTO','COD','CODIGO ARTICULO'],
   descripcion:    ['DESCRIPCION','DESCRIPCION MEDICAMENTO','MEDICAMENTO','PRODUCTO','DESCRIPCION PRODUCTO','NOMBRE MEDICAMENTO','ARTICULO','DESCRIPCION ARTICULO'],
   cohorte:        ['DESCRIPCION COHORTE','COHORTE','DESC COHORTE','NOMBRE COHORTE','GRUPO COHORTE','PROGRAMA'],
+  cie10:          ['DESCRIPCION CIE 10','DESCRIPCION CIE10','DESC CIE 10','DIAGNOSTICO CIE 10','DESCRIPCION DIAGNOSTICO','DIAGNOSTICO','CIE 10','CIE10'],
   paciente:       ['DOCUMENTO PACIENTE','IDENTIFICACION','IDENTIFICACION PACIENTE','NRO IDENTIFICACION','CEDULA','DOC PACIENTE','ID PACIENTE','NUMERO IDENTIFICACION','DOCUMENTO AFILIADO'],
   usuarioCrea:    ['USUARIO CREACION','USUARIO CREA','USUARIO','USUARIO DISPENSA','CREADO POR','DISPENSADO POR','USUARIO REGISTRO'],
   fecha:          ['FECHA','FECHA DISPENSACION','FECHA DISPENSA','FECHA CREACION','FECHA ENTREGA','FECHA REGISTRO','FECHA DOCUMENTO','FECHA COMPROBANTE']
@@ -185,6 +187,8 @@ function procesarAoA(aoa){
   rep.headerRow = hIdx + 1; // 1-based para el usuario
   var headerRow = filas[hIdx];
   var mapa = mapearColumnas(headerRow);
+  // Bodega: usar EXCLUSIVAMENTE "Bodega detalle". Si no existe, caer a otra columna de bodega.
+  if(mapa.bodega < 0 && mapa.bodegaAlt >= 0) mapa.bodega = mapa.bodegaAlt;
   rep.columnas = mapa;
 
   // 3) datos = todo lo posterior al header
@@ -221,6 +225,7 @@ function filaAObjeto(f, m){
     codigo:      norm(cel(f,m.codigo)),
     descripcion: norm(cel(f,m.descripcion)),
     cohorteRaw:  norm(cel(f,m.cohorte)),
+    cie10Raw:    norm(cel(f,m.cie10)),
     paciente:    norm(cel(f,m.paciente)),
     usuarioCrea: norm(cel(f,m.usuarioCrea)) || 'SIN USUARIO',
     fechaRaw:    norm(cel(f,m.fecha))
@@ -318,6 +323,27 @@ function parseFecha(raw){
 }
 function fmtFecha(d){ if(!d) return '-'; return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 
+/* ---------- Cohortes por DESCRIPCION CIE 10 ----------
+   Consolida los diagnósticos en grandes grupos de salud.
+   Orden = prioridad (primer match gana). Amplia libremente. */
+var COHORTE_CIE = [
+  { grupo:'Trasplantados',       kw:['TRASPLANTE','TRANSPLANTE','INJERTO DE ORGANO','RECEPTOR DE ORGANO'] },
+  { grupo:'Maternas',            kw:['EMBARAZO','PARTO','GESTACION','GESTANTE','PUERPERIO','PRENATAL','OBSTETRIC','ABORTO','CESAREA'] },
+  { grupo:'Diábeticos',          kw:['DIABETES','DIABET','MELLITUS','HIPERGLUCEMIA','GLUCEMIA'] },
+  { grupo:'Cardiovascular / HTA',kw:['HIPERTENSION','HIPERTENSIVA','ENFERMEDAD CARDIACA','CARDIACA','CARDIOPATIA','CARDIO','INFARTO','ANGINA','ISQUEMIC','ARRITMIA','INSUFICIENCIA CARDIACA','ATEROSCLEROSIS','CORONARI','VALVULOPATIA'] },
+  { grupo:'Antibióticos',        kw:['INFECCION','INFECCIOSA','BRONQUITIS','AMIGDALITIS','FARINGITIS','NEUMONIA','SINUSITIS','OTITIS','SEPSIS','BACTERI','ABSCESO','CELULITIS','URINARIA','GASTROENTERITIS'] },
+  { grupo:'Nutrición',           kw:['DESNUTRICION','DEFICIENCIA','NUTRICIONAL','MALNUTRICION','ANEMIA','AVITAMINOSIS','CARENCIA'] }
+];
+function cohorteDesdeCie(cie10){
+  var s = sinAcentos(cie10);
+  if(!s) return 'SIN COHORTE';
+  for(var i=0;i<COHORTE_CIE.length;i++){
+    var def=COHORTE_CIE[i];
+    for(var j=0;j<def.kw.length;j++){ if(s.indexOf(def.kw[j])>=0) return def.grupo; }
+  }
+  return 'OTROS DIAGN\u00d3STICOS';
+}
+
 function claveDoc(o){ return o.documento+'\u241f'+o.bodega; }
 
 function enriquecer(objs){
@@ -333,7 +359,7 @@ function enriquecer(objs){
     o.dif = difLinea(o);
     o.entregadaLinea = (o.dif === 0);
     o.pendiente = o.dif < 0 ? Math.abs(o.dif) : 0;
-    o.cohorte = o.cohorteRaw ? up(o.cohorteRaw) : 'SIN COHORTE';
+    o.cohorte = cohorteDesdeCie(o.cie10Raw);
     o.fechaDate = parseFecha(o.fechaRaw);
     o.clave = claveDoc(o);
     return o;
@@ -474,7 +500,14 @@ var DISP_CACHE=[], DISP_TOT={};
    ================================================================ */
 function renderSoporte(){
   var lineas = soloActivas(aplicarFiltros(RAW));
-  var disp = agruparDispensas(lineas).filter(function(d){ return d.evento && d.entregada; });
+  // TODAS las dispensas de contrato EVENTO (entregadas + pendientes)
+  var dispEvento = agruparDispensas(lineas).filter(function(d){ return d.evento; });
+  var totEvento = dispEvento.length;
+  var eventoEntregadas = dispEvento.filter(function(d){ return d.entregada; });
+  var totEnt = eventoEntregadas.length, totPen = totEvento - totEnt;
+
+  // Análisis de soporte SOLO sobre las de evento entregadas
+  var disp = eventoEntregadas;
   var byBod={};
   disp.forEach(function(d){
     if(!byBod[d.bodega]) byBod[d.bodega]={ bodega:d.bodega, total:0, con:0 };
@@ -484,11 +517,13 @@ function renderSoporte(){
   var rows=Object.keys(byBod).map(function(k){return byBod[k];}).sort(function(a,b){return b.total-a.total;});
   var totT=disp.length, totC=disp.filter(function(d){return d.algunSoporte;}).length, totS=totT-totC;
 
+  // Totalizador global de EVENTO + subgrupos
   $('#statsSoporte').innerHTML =
-    statCard('Entregadas (Evento)', fmt(totT), 'dispensas activas de EVENTO') +
-    statCard('Con soporte', fmt(totC), pct1(totC,totT)+'%', false, pct(totC,totT)) +
-    statCard('Sin soporte', fmt(totS), pct1(totS,totT)+'%', totS>0) +
-    statCard('Bodegas', fmt(rows.length),'con evento entregado');
+    statCard('Total dispensas Evento', fmt(totEvento), 'entregadas + pendientes') +
+    statCard('Evento entregadas', fmt(totEnt), pct1(totEnt,totEvento)+'% (100% líneas dif=0)', false, pct(totEnt,totEvento)) +
+    statCard('Evento pendientes', fmt(totPen), pct1(totPen,totEvento)+'% (alguna dif<0)', totPen>0) +
+    statCard('Con soporte', fmt(totC), pct1(totC,totT)+'% de entregadas', false, pct(totC,totT)) +
+    statCard('Sin soporte', fmt(totS), pct1(totS,totT)+'% de entregadas', totS>0);
 
   var tb=$('#tblSoporte tbody'); tb.innerHTML='';
   rows.forEach(function(r){
@@ -513,7 +548,7 @@ function renderSoporte(){
     ]);
   }
   sel.onchange=pintar; pintar();
-  SOP_CACHE=rows; SOP_TOT={totT:totT,totC:totC,totS:totS}; SOP_DISP=disp;
+  SOP_CACHE=rows; SOP_TOT={totEvento:totEvento,totEnt:totEnt,totPen:totPen,totT:totT,totC:totC,totS:totS}; SOP_DISP=dispEvento;
 }
 var SOP_CACHE=[], SOP_TOT={}, SOP_DISP=[];
 
@@ -526,48 +561,49 @@ var SOP_CACHE=[], SOP_TOT={}, SOP_DISP=[];
 
 function renderCohortes(){
   var lineas = soloActivas(aplicarFiltros(RAW));
-  // Agrupar por cohorte
+  var totLineasGlobal = lineas.length;
+  // Agrupar por cohorte (CIE-10)
   var cohMap={};
   lineas.forEach(function(l){
     var c = l.cohorte || 'SIN COHORTE';
-    if(!cohMap[c]) cohMap[c]={ cohorte:c, pacSet:{}, codSet:{}, bodSet:{}, lineas:0, entregadas:0, pendientes:0, unidades:0 };
+    if(!cohMap[c]) cohMap[c]={ cohorte:c, pacSet:{}, codSet:{}, bodSet:{}, lineas:0, entregadas:0, pendientes:0, undEnt:0, undPen:0 };
     var g=cohMap[c];
     g.lineas++;
     g.pacSet[l.paciente]=1; g.codSet[l.codigo]=1; g.bodSet[l.bodega]=1;
     // Conversión estricta a número antes de sumar
-    g.unidades += Number(l.entregado)||0;
-    g.pendientes += Number(l.pendiente)||0;
-    if(l.entregadaLinea) g.entregadas++;
+    if(l.entregadaLinea){ g.entregadas++; g.undEnt += Number(l.entregado)||0; }
+    else { g.pendientes++; g.undPen += Number(l.pendiente)||0; }
   });
   var cohortes = Object.keys(cohMap).map(function(k){
     var g=cohMap[k];
     return { cohorte:g.cohorte, lineas:g.lineas, pacients:Object.keys(g.pacSet).length,
+      partPct:pct1(g.lineas,totLineasGlobal),
       entregadas:g.entregadas, pendientes:g.pendientes, pctC:pct1(g.entregadas,g.lineas),
-      unidades:Math.round(g.unidades), codigos:Object.keys(g.codSet).length, bodegas:Object.keys(g.bodSet).length };
+      undEnt:Math.round(g.undEnt), undPen:Math.round(g.undPen),
+      codigos:Object.keys(g.codSet).length, bodegas:Object.keys(g.bodSet).length };
   }).sort(function(a,b){ return b.lineas-a.lineas; });
 
-  var totL=0,totP=0,totE=0,totPn=0,totU=0;
-  cohortes.forEach(function(c){ totL+=c.lineas; totP+=c.pacients; totE+=c.entregadas; totPn+=c.pendientes; totU+=c.unidades; });
+  var totL=0,totP=0,totE=0,totPn=0,totUE=0,totUP=0;
+  cohortes.forEach(function(c){ totL+=c.lineas; totP+=c.pacients; totE+=c.entregadas; totPn+=c.pendientes; totUE+=c.undEnt; totUP+=c.undPen; });
 
   $('#statsCohortes').innerHTML =
-    statCard('Cohortes activas', fmt(cohortes.length), 'con al menos 1 línea') +
-    statCard('Líneas en cohortes', fmt(totL), fmt(totP)+' pacientes') +
-    statCard('Entregadas', fmt(totE), pct1(totE,totL)+'%') +
-    statCard('Unidades', fmt(totU), 'entregadas total');
+    statCard('Cohortes (CIE-10)', fmt(cohortes.length), 'grupos de diagnóstico') +
+    statCard('Líneas clasificadas', fmt(totL), fmt(totP)+' pacientes únicos') +
+    statCard('Líneas entregadas', fmt(totE), pct1(totE,totL)+'% cumplimiento', false, pct(totE,totL)) +
+    statCard('Líneas pendientes', fmt(totPn), pct1(totPn,totL)+'%', totPn>0);
 
   var tb=$('#tblCohortes tbody'); tb.innerHTML='';
   cohortes.forEach(function(c){
     tb.insertAdjacentHTML('beforeend','<tr><td class="txt wrapcell">'+c.cohorte+'</td><td>'+fmt(c.pacients)+'</td><td>'+fmt(c.lineas)+'</td><td>'+
-      fmt(c.entregadas)+'</td><td>'+fmt(c.pendientes)+'</td><td class="'+pctCls(c.pctC)+'">'+c.pctC+'%</td><td>'+fmt(c.unidades)+'</td><td>'+fmt(c.codigos)+'</td><td>'+c.bodegas+'</td></tr>');
+      c.partPct+'%</td><td>'+fmt(c.entregadas)+'</td><td>'+fmt(c.pendientes)+'</td><td class="'+pctCls(c.pctC)+'">'+c.pctC+'%</td><td>'+fmt(c.undEnt)+'</td><td>'+fmt(c.undPen)+'</td></tr>');
   });
   if(cohortes.length){
-    tb.insertAdjacentHTML('beforeend','<tr class="total-row"><td class="txt">TOTAL</td><td>-</td><td>'+fmt(totL)+'</td><td>'+
-      fmt(totE)+'</td><td>'+fmt(totPn)+'</td><td>'+pct1(totE,totL)+'%</td><td>'+fmt(totU)+'</td><td>-</td><td>-</td></tr>');
+    tb.insertAdjacentHTML('beforeend','<tr class="total-row"><td class="txt">TOTAL</td><td>-</td><td>'+fmt(totL)+'</td><td>100%</td><td>'+
+      fmt(totE)+'</td><td>'+fmt(totPn)+'</td><td>'+pct1(totE,totL)+'%</td><td>'+fmt(totUE)+'</td><td>'+fmt(totUP)+'</td></tr>');
   }
 
-  // Filtro cohorte / bodega (ahora sobre las cohortes del reporte)
-  var allCohs = cohortes.map(function(c){return c.cohorte;});
-  opts($('#fCohorte'), allCohs, true);
+  // Filtro cohorte / bodega
+  opts($('#fCohorte'), cohortes.map(function(c){return c.cohorte;}), true);
   var bods=[]; lineas.forEach(function(l){ if(bods.indexOf(l.bodega)<0) bods.push(l.bodega); });
   opts($('#fCohorteBodega'), bods.sort(), true);
 
@@ -578,7 +614,7 @@ function renderCohortes(){
   var sinCoh = lineas.filter(function(l){ return l.cohorte==='SIN COHORTE'; });
   if(sinCoh.length>0){
     diagBox.style.display='block';
-    diagBox.innerHTML='<b>'+fmt(sinCoh.length)+'</b> líneas activas sin cohorte asignada ('+pct1(sinCoh.length,lineas.length)+'% del filtrado).';
+    diagBox.innerHTML='<b>'+fmt(sinCoh.length)+'</b> líneas sin diagnóstico CIE-10 ('+pct1(sinCoh.length,lineas.length)+'% del filtrado).';
   } else { diagBox.style.display='none'; }
 }
 var COH_DATA={};
@@ -673,20 +709,28 @@ function expDispensa(){
 }
 
 function expSoporte(){
+  var resumen=[
+    ['Métrica','Cantidad','%'],
+    ['Total dispensas Evento', SOP_TOT.totEvento, '100%'],
+    ['Evento entregadas', SOP_TOT.totEnt, pct1(SOP_TOT.totEnt,SOP_TOT.totEvento)+'%'],
+    ['Evento pendientes', SOP_TOT.totPen, pct1(SOP_TOT.totPen,SOP_TOT.totEvento)+'%'],
+    ['Con soporte (de entregadas)', SOP_TOT.totC, pct1(SOP_TOT.totC,SOP_TOT.totT)+'%'],
+    ['Sin soporte (de entregadas)', SOP_TOT.totS, pct1(SOP_TOT.totS,SOP_TOT.totT)+'%']
+  ];
   var head=['Bodega','Entregadas Evento','Con soporte','Sin soporte','% Con soporte'];
   var rows=SOP_CACHE.map(function(r){ var s=r.total-r.con; return [r.bodega,r.total,r.con,s,pct1(r.con,r.total)]; });
   rows.push(['TOTAL',SOP_TOT.totT,SOP_TOT.totC,SOP_TOT.totS,pct1(SOP_TOT.totC,SOP_TOT.totT)]);
-  var det=[['Documento','Bodega','Contrato','EPS','¿Con soporte?','Líneas','Fecha']];
-  SOP_DISP.forEach(function(d){ det.push([d.documento,d.bodega,d.contrato,d.eps,d.algunSoporte?'SÍ':'NO',d.lineas.length,d.fechaRaw]); });
-  exportar('indicador_soporte_evento.xlsx',[{name:'Resumen',data:[head].concat(rows)},{name:'Detalle',data:det}]);
+  var det=[['Documento','Bodega','Contrato','EPS','Estado dispensa','¿Con soporte?','Líneas','Fecha']];
+  SOP_DISP.forEach(function(d){ det.push([d.documento,d.bodega,d.contrato,d.eps,d.entregada?'ENTREGADA':'PENDIENTE',d.algunSoporte?'SÍ':'NO',d.lineas.length,d.fechaRaw]); });
+  exportar('indicador_soporte_evento.xlsx',[{name:'Totalizador',data:resumen},{name:'Por bodega',data:[head].concat(rows)},{name:'Detalle',data:det}]);
 }
 
 function expCohortes(){
-  var head=['Cohorte','Pacientes','Líneas','Entregadas','Pendientes','% Cumpl.','Unidades','Códigos','Bodegas'];
-  var rows=(COH_DATA.cohortes||[]).map(function(c){ return [c.cohorte,c.pacients,c.lineas,c.entregadas,c.pendientes,c.pctC,c.unidades,c.codigos,c.bodegas]; });
-  var det=[['Cohorte','Documento','Bodega','Paciente','Código','Descripción','Entregado','Pendiente','Diferencia','Entregada']];
+  var head=['Cohorte (CIE-10)','Pacientes','Líneas','% Part.','Entregadas','Pendientes','% Cumpl.','Und. entregadas','Und. pendientes'];
+  var rows=(COH_DATA.cohortes||[]).map(function(c){ return [c.cohorte,c.pacients,c.lineas,c.partPct,c.entregadas,c.pendientes,c.pctC,c.undEnt,c.undPen]; });
+  var det=[['Cohorte','Documento','Bodega','Paciente','Código','Descripción','CIE 10','Entregado','Pendiente','Diferencia','Entregada']];
   (COH_DATA.lineas||[]).forEach(function(l){
-    det.push([l.cohorte,l.documento,l.bodega,l.paciente,l.codigo,l.descripcion,l.entregado,l.pendiente,l.dif,l.entregadaLinea?'SÍ':'NO']);
+    det.push([l.cohorte,l.documento,l.bodega,l.paciente,l.codigo,l.descripcion,l.cie10Raw,l.entregado,l.pendiente,l.dif,l.entregadaLinea?'SÍ':'NO']);
   });
   exportar('informe_cohortes.xlsx',[{name:'Resumen',data:[head].concat(rows)},{name:'Detalle',data:det}]);
 }
