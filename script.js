@@ -688,6 +688,202 @@ function renderInactivas(){
 var INAC_CACHE={};
 
 /* ================================================================
+   RENDER 5 — DISPENSACIONES POR USUARIO
+   Agrupa por "Usuario Creación". Cada dispensa = Documento + Bodega.
+   Entregada = todas sus líneas con Diferencia = 0.
+   Responde a los filtros globales superiores.
+   ================================================================ */
+var USU_CACHE=[], USU_TOT={}, USU_DISP=[];
+function mesKey(d){ return d ? d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2) : ''; }
+var MESES_ES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+function mesLabel(k){ if(!k) return ''; var p=k.split('-'); return MESES_ES[(+p[1])-1]+' '+p[0]; }
+
+function renderUsuarios(){
+  var lineas = soloActivas(aplicarFiltros(RAW));
+  var dispAll = agruparDispensas(lineas);
+  USU_DISP = dispAll;
+
+  // Opciones de mes (a partir de las fechas de las dispensas)
+  var mesesSet = {};
+  dispAll.forEach(function(d){ var k=mesKey(d.fechaDate); if(k) mesesSet[k]=1; });
+  var meses = Object.keys(mesesSet).sort();
+  var selMes = $('#fUsuarioMes');
+  var curMes = selMes.value;
+  selMes.innerHTML = '<option value="">Todos los meses</option>' +
+    meses.map(function(k){ return '<option value="'+k+'">'+mesLabel(k)+'</option>'; }).join('');
+  if(meses.indexOf(curMes)>=0) selMes.value=curMes; else selMes.value='';
+  var mesFiltro = selMes.value;
+
+  // Dispensas segun el mes seleccionado (para KPIs y tabla)
+  var disp = mesFiltro ? dispAll.filter(function(d){ return mesKey(d.fechaDate)===mesFiltro; }) : dispAll;
+
+  // Agrupacion por usuario de creacion
+  var byUsu = {};
+  disp.forEach(function(d){
+    var u = d.usuarioCrea || 'SIN USUARIO';
+    if(!byUsu[u]) byUsu[u] = { usuario:u, total:0, entregadas:0, pendientes:0, lineas:0 };
+    byUsu[u].total++;
+    if(d.entregada) byUsu[u].entregadas++; else byUsu[u].pendientes++;
+    byUsu[u].lineas += d.lineas.length;
+  });
+  var rows = Object.keys(byUsu).map(function(k){
+    var r = byUsu[k];
+    r.eficiencia = pct1(r.entregadas, r.total);
+    return r;
+  });
+
+  // Totales globales
+  var totUsuarios = rows.length;
+  var totDisp = disp.length;
+  var promedio = totUsuarios>0 ? Math.round((totDisp/totUsuarios)*10)/10 : 0;
+
+  $('#statsUsuarios').innerHTML =
+    statCard('Total usuarios activos', fmt(totUsuarios), 'con ≥1 dispensa') +
+    statCard('Total dispensas generadas', fmt(totDisp), 'únicas (doc+bodega)') +
+    statCard('Promedio de dispensas por usuario', fmt(promedio), 'documentos / usuario');
+
+  USU_CACHE = rows.slice();
+  USU_TOT = { totUsuarios:totUsuarios, totDisp:totDisp, promedio:promedio };
+
+  pintarTablaUsuarios();
+  pintarUsuariosPorMes(dispAll);
+
+  // Select de usuario para la curva diaria
+  var selCurva = $('#fUsuarioCurva');
+  var curU = selCurva.value;
+  var usuariosOrden = rows.slice().sort(function(a,b){return b.total-a.total;}).map(function(r){return r.usuario;});
+  selCurva.innerHTML = '<option value="">Selecciona un usuario…</option>' +
+    usuariosOrden.map(function(u){ return '<option value="'+u+'">'+u+'</option>'; }).join('');
+  if(usuariosOrden.indexOf(curU)>=0) selCurva.value=curU;
+  else if(usuariosOrden.length) selCurva.value=usuariosOrden[0];
+  pintarCurvaUsuario();
+}
+
+/* Tabla "Dispensas por mes" (todos los meses, ignora el filtro de mes). */
+function pintarUsuariosPorMes(dispAll){
+  var byMes={};
+  dispAll.forEach(function(d){
+    var k=mesKey(d.fechaDate) || 'SIN FECHA';
+    if(!byMes[k]) byMes[k]={mes:k,total:0,entregadas:0,pendientes:0};
+    byMes[k].total++;
+    if(d.entregada) byMes[k].entregadas++; else byMes[k].pendientes++;
+  });
+  var rows=Object.keys(byMes).sort().map(function(k){return byMes[k];});
+  var tb=$('#tblUsuariosMes tbody'); tb.innerHTML='';
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="5" class="txt" style="text-align:center;color:#94a3b8">Sin datos.</td></tr>'; return; }
+  var tot=dispAll.length;
+  rows.forEach(function(r){
+    var lbl = r.mes==='SIN FECHA' ? 'Sin fecha' : mesLabel(r.mes);
+    tb.insertAdjacentHTML('beforeend','<tr><td class="txt">'+lbl+'</td><td>'+fmt(r.total)+'</td><td>'+
+      fmt(r.entregadas)+'</td><td>'+fmt(r.pendientes)+'</td><td>'+pct1(r.total,tot)+'%</td></tr>');
+  });
+}
+
+/* Curva diaria (line chart SVG) del usuario seleccionado.
+   Respeta filtros globales + filtro de mes; una serie de entregadas y otra de total. */
+function pintarCurvaUsuario(){
+  var svg=$('#chartUsuarioDia');
+  var leg=$('#legendUsuarioDia');
+  var u=$('#fUsuarioCurva').value;
+  var mesFiltro=$('#fUsuarioMes').value;
+  if(!u){ svg.innerHTML='<text x="320" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">Selecciona un usuario para ver su curva diaria.</text>'; leg.innerHTML=''; return; }
+
+  var disp=USU_DISP.filter(function(d){ return (d.usuarioCrea||'SIN USUARIO')===u && d.fechaDate && (!mesFiltro || mesKey(d.fechaDate)===mesFiltro); });
+  if(!disp.length){ svg.innerHTML='<text x="320" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">Sin dispensas con fecha para este usuario.</text>'; leg.innerHTML=''; return; }
+
+  var byDia={};
+  disp.forEach(function(d){
+    var k=fmtFecha(d.fechaDate);
+    if(!byDia[k]) byDia[k]={dia:k,total:0,entregadas:0};
+    byDia[k].total++;
+    if(d.entregada) byDia[k].entregadas++;
+  });
+  var dias=Object.keys(byDia).sort();
+  var serieTotal=dias.map(function(k){return byDia[k].total;});
+  var serieEnt=dias.map(function(k){return byDia[k].entregadas;});
+  lineChart(svg, dias, [
+    { vals:serieTotal, color:'#2563eb', label:'Total' },
+    { vals:serieEnt,   color:'#16a34a', label:'Entregadas' }
+  ]);
+  legend(leg, [
+    { c:'#2563eb', l:'Total dispensas', v:fmt(serieTotal.reduce(function(a,b){return a+b;},0)) },
+    { c:'#16a34a', l:'Entregadas', v:fmt(serieEnt.reduce(function(a,b){return a+b;},0)) }
+  ]);
+}
+
+/* Grafico de lineas SVG reutilizable.
+   labels: array de etiquetas eje X. series: [{vals:[], color, label}]. */
+function lineChart(svg, labels, series){
+  svg.innerHTML='';
+  var ns='http://www.w3.org/2000/svg';
+  var W=640,H=300, mL=44,mR=14,mT=16,mB=48;
+  var pw=W-mL-mR, ph=H-mT-mB;
+  var maxV=0; series.forEach(function(s){ s.vals.forEach(function(v){ if(v>maxV) maxV=v; }); });
+  if(maxV<=0) maxV=1;
+  var n=labels.length;
+  function x(i){ return n<=1 ? mL+pw/2 : mL + (pw*i/(n-1)); }
+  function y(v){ return mT + ph - (ph*v/maxV); }
+  function mk(tag,attrs){ var e=document.createElementNS(ns,tag); for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+
+  // Grid + eje Y (5 lineas)
+  var steps=4;
+  for(var g=0; g<=steps; g++){
+    var vv=maxV*g/steps, yy=y(vv);
+    svg.appendChild(mk('line',{x1:mL,y1:yy,x2:W-mR,y2:yy,stroke:'#e2e8f0','stroke-width':1}));
+    var t=mk('text',{x:mL-6,y:yy+4,'text-anchor':'end','font-size':11,fill:'#64748b'});
+    t.textContent=String(Math.round(vv)); svg.appendChild(t);
+  }
+  // Etiquetas eje X (max ~8 para no saturar)
+  var stepX=Math.ceil(n/8);
+  for(var i=0;i<n;i++){
+    if(i%stepX!==0 && i!==n-1) continue;
+    var lbl=labels[i].slice(5); // MM-DD
+    var tx=mk('text',{x:x(i),y:H-mB+18,'text-anchor':'middle','font-size':10,fill:'#64748b'});
+    tx.textContent=lbl;
+    tx.setAttribute('transform','rotate(35 '+x(i)+' '+(H-mB+18)+')');
+    svg.appendChild(tx);
+  }
+  // Series
+  series.forEach(function(s){
+    var pts=s.vals.map(function(v,i){ return x(i)+','+y(v); }).join(' ');
+    svg.appendChild(mk('polyline',{points:pts,fill:'none',stroke:s.color,'stroke-width':2.2,'stroke-linejoin':'round','stroke-linecap':'round'}));
+    s.vals.forEach(function(v,i){
+      var c=mk('circle',{cx:x(i),cy:y(v),r:3,fill:s.color});
+      var tt=mk('title',{}); tt.textContent=labels[i]+' · '+s.label+': '+v; c.appendChild(tt);
+      svg.appendChild(c);
+    });
+  });
+}
+
+/* Aplica busqueda de texto + orden y repinta la tabla (sin recalcular). */
+function pintarTablaUsuarios(){
+  var q = sinAcentos($('#fUsuarioBuscar').value || '');
+  var orden = $('#fUsuarioOrden').value || 'total';
+  var rows = USU_CACHE.filter(function(r){
+    return !q || sinAcentos(r.usuario).indexOf(q) >= 0;
+  });
+  rows.sort(function(a,b){
+    if(orden==='eficiencia'){ return (b.eficiencia-a.eficiencia) || (b.total-a.total); }
+    return (b.total-a.total) || (b.eficiencia-a.eficiencia);
+  });
+
+  var tb = $('#tblUsuarios tbody'); tb.innerHTML='';
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="6" class="txt" style="text-align:center;color:#94a3b8">Sin usuarios que coincidan.</td></tr>';
+    return;
+  }
+  rows.forEach(function(r){
+    tb.insertAdjacentHTML('beforeend',
+      '<tr><td class="txt wrapcell">'+r.usuario+'</td>'+
+      '<td>'+fmt(r.total)+'</td>'+
+      '<td>'+fmt(r.entregadas)+'</td>'+
+      '<td>'+fmt(r.pendientes)+'</td>'+
+      '<td>'+fmt(r.lineas)+'</td>'+
+      '<td class="'+pctCls(r.eficiencia)+'">'+r.eficiencia+'%</td></tr>');
+  });
+}
+
+/* ================================================================
    EXPORTACIÓN A EXCEL (XLSX en el navegador)
    ================================================================ */
 function exportar(nombre, sheets){
@@ -735,6 +931,38 @@ function expCohortes(){
   exportar('informe_cohortes.xlsx',[{name:'Resumen',data:[head].concat(rows)},{name:'Detalle',data:det}]);
 }
 
+function expUsuarios(){
+  var head=['Usuario de creación','Dispensas totales','Entregadas','Pendientes','Total líneas','% Eficiencia'];
+  var rows=USU_CACHE.slice().sort(function(a,b){return b.total-a.total;}).map(function(r){
+    return [r.usuario,r.total,r.entregadas,r.pendientes,r.lineas,pct1(r.entregadas,r.total)]; });
+  var tE=0,tP=0,tL=0,tT=0;
+  USU_CACHE.forEach(function(r){ tE+=r.entregadas; tP+=r.pendientes; tL+=r.lineas; tT+=r.total; });
+  rows.push(['TOTAL',tT,tE,tP,tL,pct1(tE,tT)]);
+  var resumen=[
+    ['Métrica','Valor'],
+    ['Total usuarios activos', USU_TOT.totUsuarios||0],
+    ['Total dispensas generadas', USU_TOT.totDisp||0],
+    ['Promedio de dispensas por usuario', USU_TOT.promedio||0]
+  ];
+  exportar('dispensaciones_por_usuario.xlsx',[{name:'Resumen',data:resumen},{name:'Por usuario',data:[head].concat(rows)},{name:'Por mes',data:expUsuariosPorMes()}]);
+}
+
+function expUsuariosPorMes(){
+  var byMes={};
+  (USU_DISP||[]).forEach(function(d){
+    var k=mesKey(d.fechaDate) || 'SIN FECHA';
+    if(!byMes[k]) byMes[k]={mes:k,total:0,entregadas:0,pendientes:0};
+    byMes[k].total++;
+    if(d.entregada) byMes[k].entregadas++; else byMes[k].pendientes++;
+  });
+  var out=[['Mes','Dispensas','Entregadas','Pendientes','% Eficiencia']];
+  Object.keys(byMes).sort().forEach(function(k){
+    var r=byMes[k];
+    out.push([k==='SIN FECHA'?'Sin fecha':mesLabel(k), r.total, r.entregadas, r.pendientes, pct1(r.entregadas,r.total)]);
+  });
+  return out;
+}
+
 function expInactivas(){
   var det=[['Documento','Bodega','Usuario creación','Contrato','EPS','Líneas','Fecha']];
   (INAC_CACHE.disp||[]).forEach(function(d){ det.push([d.documento,d.bodega,d.usuarioCrea,d.contrato,d.eps,d.lineas.length,d.fechaRaw]); });
@@ -752,6 +980,7 @@ function renderTodo(){
   renderDispensa();
   renderSoporte();
   renderCohortes();
+  renderUsuarios();
   renderInactivas();
 }
 
@@ -855,11 +1084,18 @@ function initEventos(){
   $('#fCohorteBodega').addEventListener('change', renderCohortesTop);
   $('#fInactivasUsuario').addEventListener('change', renderInactivas);
 
+  // Filtros dispensaciones por usuario
+  $('#fUsuarioBuscar').addEventListener('input', pintarTablaUsuarios);
+  $('#fUsuarioOrden').addEventListener('change', pintarTablaUsuarios);
+  $('#fUsuarioMes').addEventListener('change', renderUsuarios);
+  $('#fUsuarioCurva').addEventListener('change', pintarCurvaUsuario);
+
   // Exportaciones
   $('#btnExpDispensa').addEventListener('click', function(){ if(RAW.length) expDispensa(); });
   $('#btnExpSoporte').addEventListener('click', function(){ if(RAW.length) expSoporte(); });
   $('#btnExpCohortes').addEventListener('click', function(){ if(RAW.length) expCohortes(); });
   $('#btnExpInactivas').addEventListener('click', function(){ if(RAW.length) expInactivas(); });
+  $('#btnExpUsuarios').addEventListener('click', function(){ if(RAW.length) expUsuarios(); });
 }
 
 document.addEventListener('DOMContentLoaded', initEventos);
