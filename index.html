@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporte de Dispensación — Indicadores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" crossorigin>
+<link rel="stylesheet" href="styles.css">
+<!-- Lectura local de .xlsx / .csv (100% en el navegador, sin nube) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div class="brand">
+      <div class="logo-box">💊</div>
+      <div class="brand-txt">
+        <h1>Reporte de Dispensación</h1>
+        <p>Cargue local y visor de indicadores · procesamiento 100% en el navegador</p>
+      </div>
+    </div>
+    <div class="status">
+      <span class="dot" id="dbDot"></span>
+      <span id="dbStatusText">Sin datos cargados</span>
+    </div>
+  </header>
+
+  <!-- ============ CARGUE LOCAL ============ -->
+  <section class="card upload-card" id="uploadCard">
+    <h2>1 · Cargar archivo local</h2>
+    <p class="muted">Única fuente de datos: el archivo <b>Reporte de Dispensación</b> (.xlsx o .csv) desde tu PC. La primera fila (metadata) se omite automáticamente; los encabezados reales se toman de la segunda fila.</p>
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      <div class="dz-inner">
+        <div class="dz-icon">⬆</div>
+        <div class="dz-text"><b>Arrastra aquí</b> tu archivo o <button type="button" class="btn btn-primary" id="btnBrowse">Selecciona un archivo</button></div>
+        <div class="dz-sub">Formatos admitidos: .xlsx · .xls · .csv</div>
+      </div>
+    </div>
+    <div class="clean-report" id="cleanReport" style="display:none;"></div>
+  </section>
+
+  <!-- ============ FILTROS GLOBALES ============ -->
+  <section class="card filters-card" id="filtersCard" style="display:none;">
+    <div class="filters">
+      <div class="field"><label>Buscar bodega</label><input type="text" id="fBodega" placeholder="Nombre de la bodega…"></div>
+      <div class="field"><label>Contrato</label><select id="fContrato"><option value="">Todos</option></select></div>
+      <div class="field"><label>EPS consolidada</label><select id="fEps"><option value="">Todas</option></select></div>
+      <div class="field"><label>Mes</label><select id="fMes"><option value="">Todos</option></select></div>
+      <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" id="btnLimpiar">Limpiar</button></div>
+      <div class="field push"><label>&nbsp;</label><span class="fecha-datos" id="fechaDatos"></span></div>
+    </div>
+  </section>
+
+  <!-- ============ VISOR ============ -->
+  <section class="card viewer-card" id="viewerCard" style="display:none;">
+    <div class="result-tabs">
+      <button class="active" data-sub="dispensa">Indicador de dispensa</button>
+      <button data-sub="soporte">Indicador soporte evento</button>
+      <button data-sub="cohortes">Indicador e informe de cohortes</button>
+      <button data-sub="inactivas">Dispensas inactivas</button>
+    </div>
+    <!-- ===== DISPENSA ===== -->
+    <div class="subview active" id="sub-dispensa">
+      <div class="helpbox">Cuenta solo las dispensas con <b>Estado Activo</b> (las INACTIVO se excluyen). Una dispensa es <b>Documento + Bodega</b>: el mismo documento en dos puntos son dos dispensas. Una dispensa se considera <b>entregada</b> solo si todas sus líneas quedaron entregadas.</div>
+      <div class="toolbar"><button class="btn btn-export" id="btnExpDispensa">⬇ Exportar detalle por bodega (Excel)</button></div>
+      <div class="stat-row" id="statsDispensa"></div>
+      <div class="grid-2">
+        <div class="table-wrap">
+          <table class="data" id="tblDispensa">
+            <thead><tr>
+              <th>Bodega</th><th>Dispensas</th><th>Entregadas</th><th>Pendientes</th>
+              <th>Eficiencia</th><th>Índice pendiente</th>
+            </tr></thead><tbody></tbody>
+          </table>
+        </div>
+        <div class="pie-box">
+          <label class="pie-label">Eficiencia por bodega</label>
+          <select id="pieBodegaSelect"></select>
+          <svg id="pieDispensa" viewBox="0 0 200 200" width="200" height="200"></svg>
+          <div class="pie-legend" id="pieLegend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SOPORTE EVENTO ===== -->
+    <div class="subview" id="sub-soporte">
+      <div class="helpbox">Sobre las dispensas de <b>contrato EVENTO totalmente entregadas</b> (Estado Activo), mide cuántas tienen soporte y cuántas no. Una dispensa cuenta «con soporte» si al menos una de sus líneas trae soporte.</div>
+      <div class="toolbar"><button class="btn btn-export" id="btnExpSoporte">⬇ Descargar soporte evento (Excel)</button></div>
+      <div class="stat-row" id="statsSoporte"></div>
+      <div class="grid-2">
+        <div class="table-wrap">
+          <table class="data" id="tblSoporte">
+            <thead><tr>
+              <th>Bodega</th><th>Entregadas (Evento)</th><th>Con soporte</th><th>Sin soporte</th><th>% Con soporte</th>
+            </tr></thead><tbody></tbody>
+          </table>
+        </div>
+        <div class="pie-box">
+          <label class="pie-label">Con vs sin soporte</label>
+          <select id="pieSoporteSelect"></select>
+          <svg id="pieSoporte" viewBox="0 0 200 200" width="200" height="200"></svg>
+          <div class="pie-legend" id="pieSoporteLegend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== COHORTES ===== -->
+    <div class="subview" id="sub-cohortes">
+      <div class="helpbox">Clasifica cada línea activa en cohortes por el <b>diagnóstico (DESCRIPCION CIE 10)</b> y, como respaldo, por la <b>descripción del medicamento</b>. Una línea puede pertenecer a más de una cohorte.</div>
+      <div class="helpbox" id="cohortesDiag" style="display:none;"></div>
+      <div class="toolbar">
+        <div class="field"><label>Cohorte</label><select id="fCohorte"><option value="">Todas las cohortes</option></select></div>
+        <div class="field"><label>Bodega</label><select id="fCohorteBodega"><option value="">Todas las bodegas</option></select></div>
+        <button class="btn btn-export" id="btnExpCohortes">⬇ Exportar informe de cohortes (Excel)</button>
+      </div>
+      <div class="stat-row" id="statsCohortes"></div>
+      <div class="table-wrap">
+        <table class="data" id="tblCohortes">
+          <thead><tr>
+            <th>Cohorte</th><th>Pacientes</th><th>Líneas</th><th>Entregadas</th><th>Pendientes</th>
+            <th>% Cumpl.</th><th>Unidades</th><th>Códigos</th><th>Bodegas</th>
+          </tr></thead><tbody></tbody>
+        </table>
+      </div>
+      <h3 class="sec-h3">Top 10 códigos por cohorte / bodega</h3>
+      <div class="table-wrap">
+        <table class="data" id="tblCohortesTop">
+          <thead><tr>
+            <th>#</th><th>Código</th><th>Descripción</th><th>Líneas</th><th>Pacientes</th><th>Pendientes</th>
+          </tr></thead><tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== INACTIVAS ===== -->
+    <div class="subview" id="sub-inactivas">
+      <div class="helpbox">Filtra y calcula únicamente las dispensas cuyo <b>Estado</b> sea <b>INACTIVO</b>. Agrupa dispensas únicas por <b>Documento + Bodega</b> y resume líneas involucradas, usuarios de creación, bodegas y el rango de fechas.</div>
+      <div class="helpbox" id="inactivasDiag" style="display:none;"></div>
+      <div class="toolbar">
+        <div class="field"><label>Usuario creación</label><select id="fInactivasUsuario"><option value="">Todos los usuarios</option></select></div>
+        <button class="btn btn-export" id="btnExpInactivas">⬇ Descargar dispensas inactivas (Excel)</button>
+      </div>
+      <div class="stat-row" id="statsInactivas"></div>
+      <div class="grid-2">
+        <div class="table-wrap">
+          <h3 class="sec-h3">Por usuario de creación</h3>
+          <table class="data" id="tblInactivasUsuario">
+            <thead><tr><th>Usuario</th><th>Dispensas</th><th>%</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <h3 class="sec-h3">Por bodega</h3>
+          <table class="data" id="tblInactivasBodega">
+            <thead><tr><th>Bodega</th><th>Dispensas</th><th>%</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">Indicadores de Dispensación · fuente única: Reporte de Dispensación · procesamiento 100% local en el navegador</footer>
+</div>
+<div class="toast" id="toast"></div>
+<script src="script.js"></script>
+</body>
+</html>
