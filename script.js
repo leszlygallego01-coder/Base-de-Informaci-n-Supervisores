@@ -784,12 +784,14 @@ function pintarUsuariosPorMes(dispAll){
 function pintarCurvaUsuario(){
   var svg=$('#chartUsuarioDia');
   var leg=$('#legendUsuarioDia');
+  var tbDia=$('#tblUsuarioDia tbody');
   var u=$('#fUsuarioCurva').value;
   var mesFiltro=$('#fUsuarioMes').value;
-  if(!u){ svg.innerHTML='<text x="320" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">Selecciona un usuario para ver su curva diaria.</text>'; leg.innerHTML=''; return; }
+  if(tbDia) tbDia.innerHTML='';
+  if(!u){ svg.innerHTML='<text x="480" y="210" text-anchor="middle" fill="#94a3b8" font-size="15">Selecciona un usuario para ver su curva diaria.</text>'; leg.innerHTML=''; return; }
 
   var disp=USU_DISP.filter(function(d){ return (d.usuarioCrea||'SIN USUARIO')===u && d.fechaDate && (!mesFiltro || mesKey(d.fechaDate)===mesFiltro); });
-  if(!disp.length){ svg.innerHTML='<text x="320" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">Sin dispensas con fecha para este usuario.</text>'; leg.innerHTML=''; return; }
+  if(!disp.length){ svg.innerHTML='<text x="480" y="210" text-anchor="middle" fill="#94a3b8" font-size="15">Sin dispensas con fecha para este usuario.</text>'; leg.innerHTML=''; return; }
 
   var byDia={};
   disp.forEach(function(d){
@@ -802,24 +804,34 @@ function pintarCurvaUsuario(){
   var serieTotal=dias.map(function(k){return byDia[k].total;});
   var serieEnt=dias.map(function(k){return byDia[k].entregadas;});
   lineChart(svg, dias, [
-    { vals:serieTotal, color:'#2563eb', label:'Total' },
-    { vals:serieEnt,   color:'#16a34a', label:'Entregadas' }
+    { vals:serieTotal, color:'#2563eb', label:'Total', dyLabel:-12 },
+    { vals:serieEnt,   color:'#16a34a', label:'Entregadas', dyLabel:20 }
   ]);
   legend(leg, [
     { c:'#2563eb', l:'Total dispensas', v:fmt(serieTotal.reduce(function(a,b){return a+b;},0)) },
     { c:'#16a34a', l:'Entregadas', v:fmt(serieEnt.reduce(function(a,b){return a+b;},0)) }
   ]);
+  // Tabla de detalle diario (respaldo numerico exacto)
+  if(tbDia){
+    dias.forEach(function(k){
+      var r=byDia[k]; var pen=r.total-r.entregadas;
+      tbDia.insertAdjacentHTML('beforeend','<tr><td class="txt">'+k+'</td><td>'+fmt(r.total)+'</td><td>'+
+        fmt(r.entregadas)+'</td><td>'+fmt(pen)+'</td></tr>');
+    });
+  }
 }
 
-/* Grafico de lineas SVG reutilizable.
-   labels: array de etiquetas eje X. series: [{vals:[], color, label}]. */
+/* Grafico de lineas SVG reutilizable, con etiquetas de valor en cada punto.
+   labels: array de etiquetas eje X. series: [{vals:[], color, label, dyLabel}]. */
 function lineChart(svg, labels, series){
   svg.innerHTML='';
   var ns='http://www.w3.org/2000/svg';
-  var W=640,H=300, mL=44,mR=14,mT=16,mB=48;
+  var W=960,H=420, mL=52,mR=22,mT=34,mB=70;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
   var pw=W-mL-mR, ph=H-mT-mB;
   var maxV=0; series.forEach(function(s){ s.vals.forEach(function(v){ if(v>maxV) maxV=v; }); });
   if(maxV<=0) maxV=1;
+  maxV = Math.ceil(maxV*1.12);
   var n=labels.length;
   function x(i){ return n<=1 ? mL+pw/2 : mL + (pw*i/(n-1)); }
   function y(v){ return mT + ph - (ph*v/maxV); }
@@ -830,27 +842,37 @@ function lineChart(svg, labels, series){
   for(var g=0; g<=steps; g++){
     var vv=maxV*g/steps, yy=y(vv);
     svg.appendChild(mk('line',{x1:mL,y1:yy,x2:W-mR,y2:yy,stroke:'#e2e8f0','stroke-width':1}));
-    var t=mk('text',{x:mL-6,y:yy+4,'text-anchor':'end','font-size':11,fill:'#64748b'});
+    var t=mk('text',{x:mL-8,y:yy+4,'text-anchor':'end','font-size':13,fill:'#64748b'});
     t.textContent=String(Math.round(vv)); svg.appendChild(t);
   }
-  // Etiquetas eje X (max ~8 para no saturar)
-  var stepX=Math.ceil(n/8);
+  // Guias verticales + etiquetas eje X
+  var stepX = n>16 ? Math.ceil(n/12) : 1;
   for(var i=0;i<n;i++){
-    if(i%stepX!==0 && i!==n-1) continue;
-    var lbl=labels[i].slice(5); // MM-DD
-    var tx=mk('text',{x:x(i),y:H-mB+18,'text-anchor':'middle','font-size':10,fill:'#64748b'});
-    tx.textContent=lbl;
-    tx.setAttribute('transform','rotate(35 '+x(i)+' '+(H-mB+18)+')');
-    svg.appendChild(tx);
+    var showX = (i%stepX===0 || i===n-1);
+    if(showX){
+      svg.appendChild(mk('line',{x1:x(i),y1:mT,x2:x(i),y2:mT+ph,stroke:'#f1f5f9','stroke-width':1}));
+      var lbl=labels[i].length>5 ? labels[i].slice(5) : labels[i];
+      var xx=x(i);
+      var tx=mk('text',{x:xx,y:H-mB+20,'text-anchor':'end','font-size':12,fill:'#475569'});
+      tx.textContent=lbl;
+      tx.setAttribute('transform','rotate(-42 '+xx+' '+(H-mB+20)+')');
+      svg.appendChild(tx);
+    }
   }
-  // Series
+  // Series (linea + puntos + etiqueta de valor en cada punto)
   series.forEach(function(s){
     var pts=s.vals.map(function(v,i){ return x(i)+','+y(v); }).join(' ');
-    svg.appendChild(mk('polyline',{points:pts,fill:'none',stroke:s.color,'stroke-width':2.2,'stroke-linejoin':'round','stroke-linecap':'round'}));
+    svg.appendChild(mk('polyline',{points:pts,fill:'none',stroke:s.color,'stroke-width':2.6,'stroke-linejoin':'round','stroke-linecap':'round'}));
+    var dy = s.dyLabel!=null ? s.dyLabel : -12;
     s.vals.forEach(function(v,i){
-      var c=mk('circle',{cx:x(i),cy:y(v),r:3,fill:s.color});
+      var cx=x(i), cy=y(v);
+      var c=mk('circle',{cx:cx,cy:cy,r:4,fill:'#fff',stroke:s.color,'stroke-width':2});
       var tt=mk('title',{}); tt.textContent=labels[i]+' · '+s.label+': '+v; c.appendChild(tt);
       svg.appendChild(c);
+      if(v>0){
+        var vt=mk('text',{x:cx,y:cy+dy,'text-anchor':'middle','font-size':12,'font-weight':'700',fill:s.color,'paint-order':'stroke','stroke':'#ffffff','stroke-width':3.5,'stroke-linejoin':'round'});
+        vt.textContent=String(v); svg.appendChild(vt);
+      }
     });
   });
 }
