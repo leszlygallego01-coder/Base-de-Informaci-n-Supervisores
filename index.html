@@ -31,22 +31,23 @@
   <!-- ============ CARGUE LOCAL ============ -->
   <section class="card upload-card" id="uploadCard">
     <h2>1 · Cargar archivo local</h2>
-    <p class="muted">Única fuente de datos: el archivo <b>Reporte de Dispensación</b> (.xlsx o .csv) desde tu PC. La primera fila (metadata) se omite automáticamente; los encabezados reales se toman de la segunda fila.</p>
+    <p class="muted">Fuente de datos: el archivo <b>Reporte de Dispensación</b> (.xlsx o .csv) desde tu PC. La primera fila (metadata) se omite automáticamente; los encabezados reales se toman de la segunda fila. <b>Puedes cargar varias bodegas</b>: selecciona o arrastra varios archivos y se acumulan en un solo análisis.</p>
     <div class="dropzone" id="dropzone">
-      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
       <div class="dz-inner">
         <div class="dz-icon">⬆</div>
-        <div class="dz-text"><b>Arrastra aquí</b> tu archivo o <button type="button" class="btn btn-primary" id="btnBrowse">Selecciona un archivo</button></div>
-        <div class="dz-sub">Formatos admitidos: .xlsx · .xls · .csv</div>
+        <div class="dz-text"><b>Arrastra aquí</b> tus archivos (una o varias bodegas) o <button type="button" class="btn btn-primary" id="btnBrowse">Selecciona archivos</button></div>
+        <div class="dz-sub">Formatos admitidos: .xlsx · .xls · .csv · puedes agregar varios</div>
       </div>
     </div>
+    <div class="loaded-files" id="loadedFiles" style="display:none;"></div>
     <div class="clean-report" id="cleanReport" style="display:none;"></div>
   </section>
 
   <!-- ============ FILTROS GLOBALES ============ -->
   <section class="card filters-card" id="filtersCard" style="display:none;">
     <div class="filters">
-      <div class="field"><label>Buscar bodega</label><input type="text" id="fBodega" placeholder="Código o nombre…"></div>
+      <div class="field"><label>Buscar bodega</label><input type="text" id="fBodega" list="bodegaList" placeholder="Escribe o elige de la lista…" autocomplete="off"><datalist id="bodegaList"></datalist></div>
       <div class="field"><label>EPS consolidada</label><select id="fEps"><option value="">Todas</option></select></div>
       <div class="field"><label>Departamento</label><select id="fDepto"><option value="">Todos</option></select></div>
       <div class="field"><label>Zona</label><select id="fZona"><option value="">Todas</option></select></div>
@@ -84,6 +85,26 @@
           <select id="pieBodegaSelect"></select>
           <svg id="pieDispensa" viewBox="0 0 200 200" width="200" height="200"></svg>
           <div class="pie-legend" id="pieLegend"></div>
+        </div>
+      </div>
+
+      <h3 class="sec-h3">Cápita con soporte y sin soporte por bodega</h3>
+      <div class="helpbox">Toma las dispensas de contrato <b>CÁPITA</b> (activas) y las separa según tengan o no <b>soporte</b>, agrupadas por bodega. Una dispensa cuenta «con soporte» si al menos una de sus líneas trae registro de soporte.</div>
+      <div class="toolbar"><button class="btn btn-export" id="btnExpCapita">⬇ Exportar cápita con/sin soporte (Excel)</button></div>
+      <div class="stat-row" id="statsCapita"></div>
+      <div class="grid-2">
+        <div class="table-wrap">
+          <table class="data" id="tblCapita">
+            <thead><tr>
+              <th>Bodega</th><th>Dispensas cápita</th><th>Con soporte</th><th>Sin soporte</th><th>% Con soporte</th>
+            </tr></thead><tbody></tbody>
+          </table>
+        </div>
+        <div class="pie-box">
+          <label class="pie-label">Con vs sin soporte (cápita)</label>
+          <select id="pieCapitaSelect"></select>
+          <svg id="pieCapita" viewBox="0 0 200 200" width="200" height="200"></svg>
+          <div class="pie-legend" id="pieCapitaLegend"></div>
         </div>
       </div>
     </div>
