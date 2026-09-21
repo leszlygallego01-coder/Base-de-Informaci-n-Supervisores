@@ -6,8 +6,9 @@
 'use strict';
 
 /* ---------- Estado global ---------- */
-var RAW = [];        // filas enriquecidas (nivel línea)
+var RAW = [];        // filas enriquecidas (nivel línea) — acumuladas de todos los archivos
 var META = { archivo:'', fecha:'', filasCrudas:0, filasUsadas:0 };
+var ARCHIVOS = [];   // {nombre, lineas, disp, bodegas} por archivo cargado
 var FILTROS = { bodega:'', eps:'', depto:'', zona:'', contrato:'' };
 
 /* ---------- Utilidades DOM ---------- */
@@ -492,8 +493,60 @@ function renderDispensa(){
   }
   sel.onchange=pintarPie; pintarPie();
   DISP_CACHE = rows; DISP_TOT={totD:totD,totE:totE,totP:totP};
+  renderCapitaSoporte(lineas);
 }
 var DISP_CACHE=[], DISP_TOT={};
+
+/* ---------- CAPITA con/sin soporte por bodega (dentro de Indicador de dispensa) ----------
+   Toma las dispensas de contrato CAPITA (activas) y las separa por soporte,
+   agrupadas por bodega. "Con soporte" = al menos una linea con registro de soporte. */
+var CAP_CACHE=[], CAP_TOT={};
+function renderCapitaSoporte(lineas){
+  var dispCapita = agruparDispensas(lineas).filter(function(d){ return d.capita; });
+  var byBod={};
+  dispCapita.forEach(function(d){
+    if(!byBod[d.bodega]) byBod[d.bodega]={ bodega:d.bodega, total:0, con:0 };
+    byBod[d.bodega].total++;
+    if(d.algunSoporte) byBod[d.bodega].con++;
+  });
+  var rows=Object.keys(byBod).map(function(k){return byBod[k];}).sort(function(a,b){return b.total-a.total;});
+  var totT=dispCapita.length, totC=dispCapita.filter(function(d){return d.algunSoporte;}).length, totS=totT-totC;
+
+  $('#statsCapita').innerHTML =
+    statCard('Total dispensas Cápita', fmt(totT), 'activas (doc+bodega)') +
+    statCard('Con soporte', fmt(totC), pct1(totC,totT)+'% del total', false, pct(totC,totT)) +
+    statCard('Sin soporte', fmt(totS), pct1(totS,totT)+'% del total', totS>0) +
+    statCard('Bodegas', fmt(rows.length), 'con cápita');
+
+  var tb=$('#tblCapita tbody'); tb.innerHTML='';
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="5" class="txt" style="text-align:center;color:#94a3b8">Sin dispensas de contrato CÁPITA en el filtro actual.</td></tr>';
+  } else {
+    rows.forEach(function(r){
+      var s=r.total-r.con, pc=pct1(r.con,r.total);
+      tb.insertAdjacentHTML('beforeend','<tr><td class="txt wrapcell">'+r.bodega+'</td><td>'+fmt(r.total)+'</td><td>'+
+        fmt(r.con)+'</td><td>'+fmt(s)+'</td><td class="'+pctCls(pc)+'">'+pc+'%</td></tr>');
+    });
+    tb.insertAdjacentHTML('beforeend','<tr class="total-row"><td class="txt">TOTAL</td><td>'+fmt(totT)+'</td><td>'+
+      fmt(totC)+'</td><td>'+fmt(totS)+'</td><td>'+pct1(totC,totT)+'%</td></tr>');
+  }
+
+  var sel=$('#pieCapitaSelect');
+  var vals=['(Todas)'].concat(rows.map(function(r){return r.bodega;}));
+  sel.innerHTML=vals.map(function(v){return '<option>'+v+'</option>';}).join('');
+  function pintar(){
+    var c,s;
+    if(sel.value==='(Todas)'||!byBod[sel.value]){ c=totC; s=totS; }
+    else { var r=byBod[sel.value]; c=r.con; s=r.total-r.con; }
+    donut($('#pieCapita'), c, s, '#0b5fa5', '#d98a2b', pct1(c,c+s)+'%');
+    legend($('#pieCapitaLegend'), [
+      { c:'#0b5fa5', l:'Con soporte', v:fmt(c) },
+      { c:'#d98a2b', l:'Sin soporte', v:fmt(s) }
+    ]);
+  }
+  sel.onchange=pintar; pintar();
+  CAP_CACHE=rows; CAP_TOT={totT:totT,totC:totC,totS:totS};
+}
 
 /* ================================================================
    RENDER 2 — INDICADOR SOPORTE EVENTO
@@ -926,6 +979,19 @@ function expDispensa(){
   exportar('indicador_dispensa.xlsx',[{name:'Dispensa',data:[head].concat(rows)}]);
 }
 
+function expCapita(){
+  var head=['Bodega','Dispensas cápita','Con soporte','Sin soporte','% Con soporte'];
+  var rows=CAP_CACHE.map(function(r){ var s=r.total-r.con; return [r.bodega,r.total,r.con,s,pct1(r.con,r.total)]; });
+  rows.push(['TOTAL',CAP_TOT.totT,CAP_TOT.totC,CAP_TOT.totS,pct1(CAP_TOT.totC,CAP_TOT.totT)]);
+  var resumen=[
+    ['Métrica','Cantidad','%'],
+    ['Total dispensas Cápita', CAP_TOT.totT, '100%'],
+    ['Con soporte', CAP_TOT.totC, pct1(CAP_TOT.totC,CAP_TOT.totT)+'%'],
+    ['Sin soporte', CAP_TOT.totS, pct1(CAP_TOT.totS,CAP_TOT.totT)+'%']
+  ];
+  exportar('capita_con_sin_soporte.xlsx',[{name:'Totalizador',data:resumen},{name:'Por bodega',data:[head].concat(rows)}]);
+}
+
 function expSoporte(){
   var resumen=[
     ['Métrica','Cantidad','%'],
@@ -1007,12 +1073,13 @@ function renderTodo(){
 }
 
 function poblarFiltrosGlobales(){
-  var contratos={}, epss={}, deptos={}, zonas={};
+  var contratos={}, epss={}, deptos={}, zonas={}, bodegas={};
   RAW.forEach(function(o){
     if(o.contrato) contratos[o.contrato]=1;
     if(o.eps) epss[o.eps]=1;
     if(o.depto) deptos[o.depto]=1;
     if(o.zona) zonas[o.zona]=1;
+    if(o.bodega) bodegas[o.bodega]=1;
   });
   function fill(sel, arr){ sel.innerHTML='<option value="">'+sel.options[0].text+'</option>'+
     arr.sort().map(function(v){return '<option value="'+v+'">'+v+'</option>';}).join(''); }
@@ -1020,6 +1087,9 @@ function poblarFiltrosGlobales(){
   fill($('#fDepto'), Object.keys(deptos));
   fill($('#fZona'), Object.keys(zonas));
   fill($('#fContrato'), Object.keys(contratos));
+  // Datalist de bodegas: lista + buscador a la vez
+  var dl=$('#bodegaList');
+  if(dl){ dl.innerHTML=Object.keys(bodegas).sort().map(function(v){return '<option value="'+v.replace(/"/g,'&quot;')+'"></option>';}).join(''); }
 }
 
 function mostrarReporteLimpieza(rep, mapa){
@@ -1029,54 +1099,141 @@ function mostrarReporteLimpieza(rep, mapa){
   });
   var box=$('#cleanReport');
   box.style.display='block';
+  // Distribucion por ESTADO (fuente para activas/inactivas)
+  var estCount={}, sinEstado=0;
+  RAW.forEach(function(o){ var e=o.estado||''; if(!e){sinEstado++;} else { estCount[e]=(estCount[e]||0)+1; } });
+  var estStr=Object.keys(estCount).sort(function(a,b){return estCount[b]-estCount[a];})
+    .map(function(e){ return e+': '+fmt(estCount[e]); }).join(' · ') || 'no disponible';
+  var estWarn = mapa.estado<0;
   box.innerHTML='<div class="cr-head">✓ Archivo procesado correctamente</div><ul>'+
     '<li>Filas leídas del archivo: <b>'+fmt(rep.totalCrudas)+'</b></li>'+
     '<li>Encabezados detectados en la fila <b>'+rep.headerRow+'</b> (la fila 1 de metadata se omitió)</li>'+
     '<li>Filas divididas reconstruidas: <b>'+fmt(rep.fragmentos)+'</b></li>'+
     '<li>Filas incompletas eliminadas: <b>'+fmt(rep.incompletas)+'</b></li>'+
     '<li>Filas de datos válidas usadas: <b>'+fmt(rep.usadas)+'</b></li>'+
+    '<li>Columna <b>Estado</b> '+(estWarn?'<span style="color:#b23a34">NO detectada</span>':'detectada')+' — valores: <b>'+estStr+'</b> <span class="muted">(define activas vs. inactivas)</span></li>'+
     (faltan.length?'<li style="color:#b23a34">⚠ No se reconocieron columnas: <b>'+faltan.join(', ')+'</b> (revisa los encabezados del archivo)</li>':'')+
     '</ul>';
 }
 
-function cargarArchivo(file){
-  if(!file) return;
-  var ext=(file.name.split('.').pop()||'').toLowerCase();
-  if(['xlsx','xls','csv'].indexOf(ext)<0){ toast('Formato no admitido. Usa .xlsx, .xls o .csv',true); return; }
-  $('#dbStatusText').textContent='Procesando '+file.name+'…';
-  leerArchivo(file, function(err, aoa){
-    if(err){ toast('Error al leer el archivo: '+err.message,true); $('#dbStatusText').textContent='Error de lectura'; return; }
-    try{
-      var res = procesarAoA(aoa);
-      if(!res.objs.length){ toast('No se encontraron filas válidas en el archivo.',true); return; }
-      RAW = enriquecer(res.objs);
-      META.archivo=file.name; META.fecha=new Date().toLocaleString('es-CO');
-      META.filasCrudas=res.rep.totalCrudas; META.filasUsadas=res.rep.usadas;
+/* ---------- Carga ACUMULATIVA de varios archivos (varias bodegas) ----------
+   Cada archivo se procesa y sus lineas se AGREGAN a RAW. Las dispensas son
+   unicas por Documento + Bodega, de modo que varias bodegas conviven sin
+   pisarse. Se evita recargar dos veces el mismo archivo (por nombre). */
+function claveLineaUnica(o){
+  return [o.documento,o.bodega,o.codigo,o.paciente,o.fechaRaw,o.diferenciaRaw,o.entregado,o.formulado].join('\u241f');
+}
 
-      mostrarReporteLimpieza(res.rep, res.mapa);
-      poblarFiltrosGlobales();
-      FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:''};
-      $('#fBodega').value=''; $('#fEps').value=''; $('#fDepto').value=''; $('#fZona').value=''; $('#fContrato').value='';
-      renderTodo();
+function cargarArchivos(fileList){
+  var files = Array.prototype.slice.call(fileList||[]);
+  if(!files.length) return;
+  var validos = files.filter(function(f){ return ['xlsx','xls','csv'].indexOf((f.name.split('.').pop()||'').toLowerCase())>=0; });
+  if(!validos.length){ toast('Formato no admitido. Usa .xlsx, .xls o .csv',true); return; }
+  // procesar en secuencia para no saturar memoria
+  var i=0, agregadasTot=0, ultimoRes=null, ultimoMapa=null;
+  function siguiente(){
+    if(i>=validos.length){ finalizar(); return; }
+    var file=validos[i++];
+    if(ARCHIVOS.some(function(a){ return a.nombre===file.name; })){
+      toast('El archivo "'+file.name+'" ya estaba cargado; se omite.',true);
+      siguiente(); return;
+    }
+    $('#dbStatusText').textContent='Procesando '+file.name+'\u2026';
+    leerArchivo(file, function(err, aoa){
+      if(err){ toast('Error al leer '+file.name+': '+err.message,true); siguiente(); return; }
+      try{
+        var res = procesarAoA(aoa);
+        if(!res.objs.length){ toast('Sin filas validas en '+file.name,true); siguiente(); return; }
+        var nuevas = enriquecer(res.objs);
+        // dedupe frente a lo ya cargado
+        var vistos={}; RAW.forEach(function(o){ vistos[claveLineaUnica(o)]=1; });
+        var agregadas=0, bodSet={}, dispSet={};
+        nuevas.forEach(function(o){
+          var k=claveLineaUnica(o);
+          if(vistos[k]) return; vistos[k]=1;
+          o.__src=file.name;
+          RAW.push(o); agregadas++;
+          bodSet[o.bodega]=1; dispSet[o.clave]=1;
+        });
+        agregadasTot+=agregadas;
+        ARCHIVOS.push({ nombre:file.name, lineas:agregadas, bodegas:Object.keys(bodSet).length, disp:Object.keys(dispSet).length });
+        ultimoRes=res.rep; ultimoMapa=res.mapa;
+      }catch(e){ toast('Error al procesar '+file.name+': '+e.message,true); }
+      siguiente();
+    });
+  }
+  function finalizar(){
+    if(!RAW.length){ $('#dbStatusText').textContent='Sin datos cargados'; return; }
+    META.fecha=new Date().toLocaleString('es-CO');
+    if(ultimoRes) mostrarReporteLimpieza(ultimoRes, ultimoMapa);
+    renderLoadedFiles();
+    poblarFiltrosGlobales();
+    renderTodo();
+    $('#filtersCard').style.display='block';
+    $('#viewerCard').style.display='block';
+    $('#dbDot').className='dot on';
+    var totBod=contarBodegas(), totDisp=contarDispensas();
+    $('#dbStatusText').textContent=fmt(RAW.length)+' lineas \u00b7 '+fmt(totDisp)+' dispensas \u00b7 '+fmt(totBod)+' bodegas \u00b7 '+ARCHIVOS.length+' archivo(s)';
+    $('#fechaDatos').textContent='Actualizado: '+META.fecha;
+    if(agregadasTot>0) toast('Se agregaron '+fmt(agregadasTot)+' lineas ('+ARCHIVOS.length+' archivo(s), '+fmt(totBod)+' bodegas)');
+  }
+  siguiente();
+}
 
-      $('#filtersCard').style.display='block';
-      $('#viewerCard').style.display='block';
-      $('#dbDot').className='dot on';
-      $('#dbStatusText').textContent=fmt(RAW.length)+' líneas · '+file.name;
-      $('#fechaDatos').textContent='Cargado: '+META.fecha;
-      toast('Datos cargados: '+fmt(RAW.length)+' líneas');
-    }catch(e){ toast('Error al procesar: '+e.message,true); $('#dbStatusText').textContent='Error de proceso'; }
+/* Total de dispensas UNICAS (Documento + Bodega) en todo lo cargado. */
+function contarDispensas(){ var s={}; RAW.forEach(function(o){ s[o.clave]=1; }); return Object.keys(s).length; }
+function contarBodegas(){ var s={}; RAW.forEach(function(o){ s[o.bodega]=1; }); return Object.keys(s).length; }
+
+function renderLoadedFiles(){
+  var box=$('#loadedFiles'); if(!box) return;
+  if(!ARCHIVOS.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  var totBod=contarBodegas(), totDisp=contarDispensas();
+  var lista=ARCHIVOS.map(function(a,idx){
+    return '<li><span class="lf-name">'+a.nombre+'</span>'+
+      '<span class="lf-meta">'+fmt(a.lineas)+' lineas \u00b7 '+fmt(a.disp)+' dispensas \u00b7 '+a.bodegas+' bodega(s)</span>'+
+      '<button type="button" class="lf-x" data-idx="'+idx+'" title="Quitar">\u2715</button></li>';
+  }).join('');
+  box.innerHTML='<div class="lf-head">Archivos cargados ('+ARCHIVOS.length+') \u00b7 total '+fmt(RAW.length)+' lineas \u00b7 '+fmt(totDisp)+' dispensas \u00b7 '+fmt(totBod)+' bodegas '+
+    '<button type="button" class="btn btn-ghost lf-clear" id="btnResetDatos">Vaciar todo</button></div>'+
+    '<ul class="lf-list">'+lista+'</ul>';
+  $('#btnResetDatos').addEventListener('click', vaciarDatos);
+  $$('.lf-x', box).forEach(function(b){
+    b.addEventListener('click', function(){ quitarArchivo(+b.getAttribute('data-idx')); });
   });
+}
+
+function quitarArchivo(idx){
+  var a=ARCHIVOS[idx]; if(!a) return;
+  ARCHIVOS.splice(idx,1);
+  // reconstruir RAW re-leyendo? no guardamos objetos por archivo; marcamos por nombre.
+  RAW = RAW.filter(function(o){ return o.__src!==a.nombre; });
+  if(!RAW.length){ vaciarDatos(); return; }
+  renderLoadedFiles(); poblarFiltrosGlobales(); renderTodo();
+  var totBod=contarBodegas(), totDisp=contarDispensas();
+  $('#dbStatusText').textContent=fmt(RAW.length)+' lineas \u00b7 '+fmt(totDisp)+' dispensas \u00b7 '+fmt(totBod)+' bodegas \u00b7 '+ARCHIVOS.length+' archivo(s)';
+  toast('Archivo "'+a.nombre+'" retirado');
+}
+
+function vaciarDatos(){
+  RAW=[]; ARCHIVOS=[]; META={ archivo:'', fecha:'', filasCrudas:0, filasUsadas:0 };
+  FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:''};
+  $('#loadedFiles').style.display='none'; $('#loadedFiles').innerHTML='';
+  $('#cleanReport').style.display='none';
+  $('#filtersCard').style.display='none'; $('#viewerCard').style.display='none';
+  $('#dbDot').className='dot'; $('#dbStatusText').textContent='Sin datos cargados';
+  $('#fechaDatos').textContent='';
+  toast('Datos vaciados');
 }
 
 function initEventos(){
   var dz=$('#dropzone'), fi=$('#fileInput');
   $('#btnBrowse').addEventListener('click', function(e){ e.stopPropagation(); fi.click(); });
   dz.addEventListener('click', function(){ fi.click(); });
-  fi.addEventListener('change', function(){ if(fi.files[0]) cargarArchivo(fi.files[0]); fi.value=''; });
+  fi.addEventListener('change', function(){ if(fi.files && fi.files.length) cargarArchivos(fi.files); fi.value=''; });
   ['dragenter','dragover'].forEach(function(ev){ dz.addEventListener(ev,function(e){ e.preventDefault(); dz.classList.add('drag'); }); });
   ['dragleave','drop'].forEach(function(ev){ dz.addEventListener(ev,function(e){ e.preventDefault(); dz.classList.remove('drag'); }); });
-  dz.addEventListener('drop', function(e){ var f=e.dataTransfer.files[0]; if(f) cargarArchivo(f); });
+  dz.addEventListener('drop', function(e){ if(e.dataTransfer.files && e.dataTransfer.files.length) cargarArchivos(e.dataTransfer.files); });
 
   // Tabs
   $$('.result-tabs button').forEach(function(b){
@@ -1114,6 +1271,7 @@ function initEventos(){
 
   // Exportaciones
   $('#btnExpDispensa').addEventListener('click', function(){ if(RAW.length) expDispensa(); });
+  $('#btnExpCapita').addEventListener('click', function(){ if(RAW.length) expCapita(); });
   $('#btnExpSoporte').addEventListener('click', function(){ if(RAW.length) expSoporte(); });
   $('#btnExpCohortes').addEventListener('click', function(){ if(RAW.length) expCohortes(); });
   $('#btnExpInactivas').addEventListener('click', function(){ if(RAW.length) expInactivas(); });
