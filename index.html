@@ -163,12 +163,22 @@
             <thead><tr><th>Mes</th><th>Dispensas</th><th>Entregadas</th><th>Pendientes</th><th>%</th></tr></thead><tbody></tbody>
           </table>
         </div>
-        <div class="pie-box" style="align-items:stretch;">
+        <div class="table-wrap">
+          <h3 class="sec-h3">Detalle diario del usuario</h3>
+          <div style="max-height:320px;overflow:auto;">
+          <table class="data" id="tblUsuarioDia">
+            <thead><tr><th>Día</th><th>Total</th><th>Entregadas</th><th>Pendientes</th></tr></thead><tbody></tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
           <label class="pie-label">Curva diaria de dispensas por usuario</label>
           <select id="fUsuarioCurva"><option value="">Selecciona un usuario…</option></select>
-          <svg id="chartUsuarioDia" viewBox="0 0 640 300" width="100%" height="300" preserveAspectRatio="xMidYMid meet"></svg>
-          <div class="pie-legend" id="legendUsuarioDia"></div>
         </div>
+        <svg id="chartUsuarioDia" viewBox="0 0 960 420" width="100%" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="pie-legend" id="legendUsuarioDia"></div>
       </div>
     </div>
 
