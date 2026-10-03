@@ -65,6 +65,8 @@
       <button data-sub="cohortes">Indicador e informe de cohortes</button>
       <button data-sub="usuarios">Dispensaciones por usuario</button>
       <button data-sub="inactivas">Dispensas inactivas</button>
+      <button data-sub="moleculas">Top 10 moléculas</button>
+      <button data-sub="eficiencia">Eficiencia por líneas</button>
     </div>
     <!-- ===== DISPENSA ===== -->
     <div class="subview active" id="sub-dispensa">
@@ -225,6 +227,48 @@
             <thead><tr><th>Bodega</th><th>Dispensas</th><th>%</th></tr></thead><tbody></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- ===== TOP 10 MOLÉCULAS ===== -->
+    <div class="subview" id="sub-moleculas">
+      <div class="helpbox">Ranking de las <b>10 moléculas (medicamentos) con más unidades entregadas</b>, respetando los filtros globales (zona, departamento, bodega, EPS, contrato) y considerando solo líneas de dispensas <b>activas</b>. «Und. entregadas» suma la columna <b>Cantidad entregada</b>; «Líneas» cuenta las líneas con entrega registrada. Descarga el detalle en Excel.</div>
+      <div class="toolbar"><button class="btn btn-export" id="btnExpMoleculas">⬇ Descargar top 10 moléculas (Excel)</button></div>
+      <div class="stat-row" id="statsMoleculas"></div>
+      <div class="table-wrap">
+        <table class="data" id="tblMoleculas">
+          <thead><tr>
+            <th>#</th><th>Molécula / Medicamento</th><th>Código(s)</th><th>Und. entregadas</th><th>Líneas</th><th>Bodegas</th>
+          </tr></thead><tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== EFICIENCIA POR LÍNEAS ===== -->
+    <div class="subview" id="sub-eficiencia">
+      <div class="helpbox">Eficiencia a nivel de <b>línea</b> (no de dispensa) sobre las líneas <b>activas</b> filtradas. Una línea está <b>entregada</b> si tiene unidades entregadas y sin faltante (Diferencia ≥ 0 y entregado &gt; 0); <b>pendiente</b> si Diferencia &lt; 0; <b>otras</b> si no hay faltante pero tampoco unidades entregadas. <b>Sin Homologar</b> = líneas cuya bodega no cruza con una zona del maestro.</div>
+      <div class="toolbar"><button class="btn btn-export" id="btnExpEficiencia">⬇ Descargar eficiencia por líneas (Excel)</button></div>
+      <div class="stat-row" id="statsEficiencia"></div>
+      <div class="grid-2">
+        <div class="pie-box">
+          <label class="pie-label">% Líneas entregadas vs % pendientes</label>
+          <select id="pieEficienciaSelect"></select>
+          <svg id="pieEficiencia" viewBox="0 0 200 200" width="200" height="200"></svg>
+          <div class="pie-legend" id="pieEficienciaLegend"></div>
+          <div class="muted" id="pieEficienciaNota" style="font-size:12px;margin-top:8px;line-height:1.5;"></div>
+        </div>
+        <div class="table-wrap">
+          <h3 class="sec-h3">Por zona</h3>
+          <table class="data" id="tblEficienciaZona">
+            <thead><tr><th>Zona</th><th>Total</th><th>Entregadas</th><th>Pendientes</th><th>% Cumpl.</th><th>Sin Homologar</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <h3 class="sec-h3">Por bodega detalle</h3>
+      <div class="table-wrap">
+        <table class="data" id="tblEficienciaBodega">
+          <thead><tr><th>Zona</th><th>Bodega</th><th>Total</th><th>Entregadas</th><th>Pendientes</th><th>% Cumpl.</th><th>Sin Homologar</th></tr></thead><tbody></tbody>
+        </table>
       </div>
     </div>
   </section>
