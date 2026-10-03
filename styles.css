@@ -128,3 +128,7 @@ table.data tr.total-row td{background:var(--surface-soft);font-weight:700;border
 .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(30px);background:var(--blue-deep);color:#fff;padding:11px 20px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:99;box-shadow:var(--shadow);}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.error{background:var(--clay);}
+
+/* Barra proporcional dentro de la tabla Top 10 moléculas */
+.molbar{display:block;height:5px;border-radius:4px;background:var(--surface-soft,#eef2f7);margin-bottom:5px;overflow:hidden;}
+.molbar i{display:block;height:100%;background:linear-gradient(90deg,#0b5fa5,#10b981);border-radius:4px;}
