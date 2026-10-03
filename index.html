@@ -10,6 +10,8 @@
 <link rel="stylesheet" href="styles.css">
 <!-- Lectura local de .xlsx / .csv (100% en el navegador, sin nube) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Catálogo de homólogos (Código de Artículo -> Código Homólogo + Descripción DCI). 100% local. -->
+<script src="homologo_data.js"></script>
 </head>
 <body>
 <div class="app">
@@ -68,7 +70,7 @@
       <button data-sub="cohortes">Indicador e informe de cohortes</button>
       <button data-sub="usuarios">Dispensaciones por usuario</button>
       <button data-sub="inactivas">Dispensas inactivas</button>
-      <button data-sub="moleculas">Top 10 artículos</button>
+      <button data-sub="moleculas">Top 10 homólogos</button>
       <button data-sub="eficiencia">Eficiencia por líneas</button>
     </div>
     <!-- ===== DISPENSA ===== -->
@@ -235,13 +237,14 @@
 
     <!-- ===== TOP 10 MOLÉCULAS ===== -->
     <div class="subview" id="sub-moleculas">
-      <div class="helpbox">Ranking de los <b>10 códigos de artículo con más unidades entregadas</b>, respetando los filtros globales (zona, departamento, bodega, EPS, contrato). Solo cuentan las líneas <b>entregadas</b>: <b>Unidades &gt; 0</b> y <b>Diferencia = 0</b>, de dispensas <b>activas</b>. Se agrupa por <b>Código de Artículo</b> y se muestra la <b>Descripción por DCI</b>, el número de líneas y las unidades entregadas. La bodega se controla desde el buscador global. Descarga el detalle en Excel.</div>
-      <div class="toolbar"><button class="btn btn-export" id="btnExpMoleculas">⬇ Descargar top 10 artículos (Excel)</button></div>
+      <div class="helpbox">Ranking de los <b>10 códigos homólogos con más unidades entregadas</b>, respetando los filtros globales (zona, departamento, bodega, EPS, contrato, mes y rango de fechas). Cada <b>Código de Artículo</b> del reporte se cruza con el catálogo <b>HOMÓLOGO</b> para obtener su <b>Código Homólogo</b> y su <b>Descripción por DCI</b>; así se agrupan juntos los artículos que son el mismo medicamento. Si un artículo <b>no tiene Descripción DCI</b>, se usa la <b>Descripción del reporte</b>; si no tiene homólogo, se agrupa por su propio código de artículo. Solo cuentan las líneas <b>entregadas</b> (<b>Unidades &gt; 0</b> y <b>Diferencia = 0</b>) de dispensas <b>activas</b>. Descarga el detalle en Excel.</div>
+      <div class="helpbox" id="moleculasDiag" style="display:none;"></div>
+      <div class="toolbar"><button class="btn btn-export" id="btnExpMoleculas">⬇ Descargar top 10 homólogos (Excel)</button></div>
       <div class="stat-row" id="statsMoleculas"></div>
       <div class="table-wrap">
         <table class="data" id="tblMoleculas">
           <thead><tr>
-            <th>#</th><th>Código de Artículo</th><th>Descripción por DCI</th><th>Líneas</th><th>Und. entregadas</th>
+            <th>#</th><th>Código Homólogo</th><th>Descripción (DCI)</th><th>Líneas</th><th>Und. entregadas</th>
           </tr></thead><tbody></tbody>
         </table>
       </div>
