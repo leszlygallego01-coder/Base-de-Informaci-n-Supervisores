@@ -1267,26 +1267,53 @@ function donutN(svg, segs, centerTxt){
 }
 
 /* ================================================================
-   RENDER — TOP 10 CÓDIGOS DE ARTÍCULO MÁS ENTREGADOS (respeta filtros)
-   Criterio de línea entregada: Unidades > 0 Y Diferencia = 0.
-   Agrupa por Código de Artículo; muestra Descripción por DCI, # de líneas
-   y unidades entregadas. (La bodega se controla con el buscador global.)
+   HOMOLOGACIÓN DE ARTÍCULOS (catálogo HOMÓLOGO)
+   Cruza el "Código de Artículo" del reporte con el catálogo cargado en
+   homologo_data.js (window.HOMOLOGO_MAP): devuelve el Código Homólogo y la
+   Descripción por DCI. Si el código no está en el catálogo, no hay homólogo.
+   La clave se normaliza (sin espacios y en mayúsculas) para que coincida.
+   ================================================================ */
+function buscarHomologo(codigo){
+  var map = (typeof window!=='undefined' && window.HOMOLOGO_MAP) || (typeof HOMOLOGO_MAP!=='undefined' ? HOMOLOGO_MAP : null);
+  if(!map || !codigo) return null;
+  var k = String(codigo).replace(/\s+/g,'').toUpperCase();
+  var row = map[k];
+  if(!row) return null;
+  return { homologo: (row[0]||'').trim(), dci: (row[1]||'').trim() };
+}
+
+/* ================================================================
+   RENDER — TOP 10 CÓDIGOS HOMÓLOGOS MÁS ENTREGADOS (respeta filtros)
+   Agrupa por CÓDIGO HOMÓLOGO (no por código de artículo). La descripción
+   mostrada es la Descripción por DCI del catálogo; si falta, se usa la
+   Descripción del reporte. Si un artículo no tiene homólogo, se agrupa por
+   su propio código de artículo. Criterio de línea entregada: Unidades > 0 y
+   Diferencia = 0, en dispensas activas.
    ================================================================ */
 var MOL_CACHE=[], MOL_TOT={};
 function renderMoleculas(){
   var lineas = soloActivas(aplicarFiltros(RAW));
   var map={};
+  var sinHom=0, conHom=0; // cobertura de homologación sobre líneas entregadas
   lineas.forEach(function(o){
     var ent = toNum(o.entregado);
     // Solo líneas entregadas: unidades > 0 y Diferencia = 0.
     if(!(ent>0 && o.dif===0)) return;
-    var cod = o.codigo || 'SIN CÓDIGO';
-    var k = sinAcentos(cod);
-    if(!map[k]) map[k]={ codigo:cod, descripcion:o.descripcion||'', und:0, lineas:0 };
+    var h = buscarHomologo(o.codigo);
+    var homo, dci, art=o.codigo||'SIN CÓDIGO';
+    if(h && h.homologo){ homo=h.homologo; conHom++; }
+    else { homo=art; sinHom++; }
+    // Descripción: DCI del catálogo; si no hay, la del reporte.
+    dci = (h && h.dci) ? h.dci : (o.descripcion||'');
+    var k = sinAcentos(homo);
+    if(!map[k]) map[k]={ homologo:homo, descripcion:dci, und:0, lineas:0, articulos:{} };
     map[k].und += ent; map[k].lineas++;
-    if(!map[k].descripcion && o.descripcion) map[k].descripcion=o.descripcion;
+    if(art) map[k].articulos[art]=1;
+    if(!map[k].descripcion && dci) map[k].descripcion=dci;
   });
-  var arr = Object.keys(map).map(function(k){ return map[k]; })
+  var arr = Object.keys(map).map(function(k){ var m=map[k];
+    return { homologo:m.homologo, descripcion:m.descripcion, und:m.und, lineas:m.lineas,
+             articulos:Object.keys(m.articulos).length }; })
     .sort(function(a,b){ return b.und-a.und || b.lineas-a.lineas; });
   var top = arr.slice(0,10);
   var totUnd = arr.reduce(function(s,m){ return s+m.und; },0);
@@ -1295,25 +1322,40 @@ function renderMoleculas(){
   var topLin = top.reduce(function(s,m){ return s+m.lineas; },0);
 
   $('#statsMoleculas').innerHTML =
-    statCard('Artículos distintos', fmt(arr.length), 'entregados (dif = 0)') +
+    statCard('Homólogos distintos', fmt(arr.length), 'entregados (dif = 0)') +
     statCard('Unidades entregadas', fmt(totUnd), 'total líneas entregadas') +
     statCard('Top 10 · unidades', fmt(topUnd), pct1(topUnd,totUnd)+'% del total entregado', false, pct(topUnd,totUnd)) +
     statCard('Líneas del top 10', fmt(topLin), 'de '+fmt(totLin)+' líneas entregadas');
 
+  // Aviso de cobertura del catálogo de homólogos
+  var diag=$('#moleculasDiag');
+  if(diag){
+    var mapOk = (typeof window!=='undefined' && window.HOMOLOGO_MAP) || (typeof HOMOLOGO_MAP!=='undefined');
+    if(!mapOk){
+      diag.style.display='block';
+      diag.innerHTML='⚠ No se encontró el catálogo <b>homologo_data.js</b>; el ranking se agrupa por código de artículo mientras tanto.';
+    } else if(sinHom>0){
+      diag.style.display='block';
+      diag.innerHTML='Cobertura de homologación: <b>'+fmt(conHom)+'</b> líneas con homólogo y <b>'+fmt(sinHom)+'</b> sin homólogo (se agrupan por su código de artículo y usan la descripción del reporte).';
+    } else {
+      diag.style.display='none'; diag.innerHTML='';
+    }
+  }
+
   var maxUnd = top.length?top[0].und:0;
   var tb=$('#tblMoleculas tbody'); tb.innerHTML='';
   if(!top.length){
-    tb.innerHTML='<tr><td colspan="5" class="muted" style="text-align:center;padding:18px">Sin artículos entregados (Unidades &gt; 0 y Diferencia = 0) con los filtros actuales.</td></tr>';
+    tb.innerHTML='<tr><td colspan="5" class="muted" style="text-align:center;padding:18px">Sin líneas entregadas (Unidades &gt; 0 y Diferencia = 0) con los filtros actuales.</td></tr>';
   } else {
     top.forEach(function(m,i){
       var w = maxUnd>0?Math.round(m.und/maxUnd*100):0;
       tb.insertAdjacentHTML('beforeend','<tr><td>'+(i+1)+'</td>'+
-        '<td class="txt">'+m.codigo+'</td>'+
+        '<td class="txt">'+m.homologo+'</td>'+
         '<td class="txt wrapcell"><div class="molbar"><i style="width:'+w+'%"></i></div>'+(m.descripcion||'-')+'</td>'+
         '<td>'+fmt(m.lineas)+'</td><td>'+fmt(m.und)+'</td></tr>');
     });
   }
-  MOL_CACHE=arr; MOL_TOT={ totUnd:totUnd, totLin:totLin, top:top };
+  MOL_CACHE=arr; MOL_TOT={ totUnd:totUnd, totLin:totLin, top:top, conHom:conHom, sinHom:sinHom };
 }
 
 /* ================================================================
@@ -1391,11 +1433,11 @@ function renderEficienciaLineas(){
 
 /* Exportaciones de las nuevas secciones */
 function expMoleculas(){
-  var head=['#','Código de Artículo','Descripción por DCI','Líneas','Unidades entregadas'];
-  var top=(MOL_TOT.top||[]).map(function(m,i){ return [i+1, m.codigo, m.descripcion||'', m.lineas, m.und]; });
-  var headAll=['Código de Artículo','Descripción por DCI','Líneas','Unidades entregadas'];
-  var all=MOL_CACHE.map(function(m){ return [m.codigo, m.descripcion||'', m.lineas, m.und]; });
-  exportar('top10_articulos_entregados.xlsx',[
+  var head=['#','Código Homólogo','Descripción (DCI)','Líneas','Unidades entregadas','Artículos agrupados'];
+  var top=(MOL_TOT.top||[]).map(function(m,i){ return [i+1, m.homologo, m.descripcion||'', m.lineas, m.und, m.articulos]; });
+  var headAll=['Código Homólogo','Descripción (DCI)','Líneas','Unidades entregadas','Artículos agrupados'];
+  var all=MOL_CACHE.map(function(m){ return [m.homologo, m.descripcion||'', m.lineas, m.und, m.articulos]; });
+  exportar('top10_homologos_entregados.xlsx',[
     { name:'Top 10', data:[head].concat(top) },
     { name:'Ranking completo', data:[headAll].concat(all) }
   ]);
