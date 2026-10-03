@@ -1529,6 +1529,7 @@ function mostrarReporteLimpieza(rep, mapa){
     '<li>Encabezados detectados en la fila <b>'+rep.headerRow+'</b> (la fila 1 de metadata se omitió)</li>'+
     '<li>Filas divididas reconstruidas: <b>'+fmt(rep.fragmentos)+'</b></li>'+
     '<li>Filas incompletas eliminadas: <b>'+fmt(rep.incompletas)+'</b></li>'+
+    (rep.descartadasContrato ? '<li>Lineas eliminadas por contrato distinto de CAPITA/EVENTO: <b>'+fmt(rep.descartadasContrato)+'</b> <span class="muted">(el contrato solo puede ser CAPITA o EVENTO)</span></li>' : '')+
     '<li>Filas de datos válidas usadas: <b>'+fmt(rep.usadas)+'</b></li>'+
     '<li>Columna <b>Estado</b> '+(estWarn?'<span style="color:#b23a34">NO detectada</span>':'detectada')+' — valores: <b>'+estStr+'</b> <span class="muted">(define activas vs. inactivas)</span></li>'+
     (faltan.length?'<li style="color:#b23a34">⚠ No se reconocieron columnas: <b>'+faltan.join(', ')+'</b> (revisa los encabezados del archivo)</li>':'')+
@@ -1564,6 +1565,19 @@ function cargarArchivos(fileList){
         var res = procesarAoA(aoa);
         if(!res.objs.length){ toast('Sin filas validas en '+file.name,true); siguiente(); return; }
         var nuevas = enriquecer(res.objs);
+        // Regla de negocio: el CONTRATO solo puede ser CAPITA o EVENTO.
+        // Toda linea/dispensa con un contrato distinto (codigos tipo P..., valores
+        // sueltos como "-30", diagnosticos, etc.) se ELIMINA del reporte por completo.
+        // Solo se aplica si la columna Contrato fue detectada, para no vaciar el reporte
+        // cuando el archivo no trae esa columna.
+        if(res.mapa && res.mapa.contrato >= 0){
+          var descContrato = 0;
+          nuevas = nuevas.filter(function(o){
+            if(o.capita || o.evento) return true;
+            descContrato++; return false;
+          });
+          res.rep.descartadasContrato = descContrato;
+        }
         // dedupe frente a lo ya cargado
         var vistos={}; RAW.forEach(function(o){ vistos[claveLineaUnica(o)]=1; });
         var agregadas=0, bodSet={}, dispSet={};
