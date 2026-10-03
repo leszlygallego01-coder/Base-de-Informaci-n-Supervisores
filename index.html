@@ -52,6 +52,9 @@
       <div class="field"><label>Departamento</label><select id="fDepto"><option value="">Todos</option></select></div>
       <div class="field"><label>Zona</label><select id="fZona"><option value="">Todas</option></select></div>
       <div class="field"><label>Contrato</label><select id="fContrato"><option value="">Todos</option></select></div>
+      <div class="field"><label>Mes</label><select id="fMes"><option value="">Todos los meses</option></select></div>
+      <div class="field"><label>Fecha inicio</label><input type="date" id="fDesde"></div>
+      <div class="field"><label>Fecha fin</label><input type="date" id="fHasta"></div>
       <div class="field"><label>&nbsp;</label><button class="btn btn-ghost" id="btnLimpiar">Limpiar</button></div>
       <div class="field push"><label>&nbsp;</label><span class="fecha-datos" id="fechaDatos"></span></div>
     </div>
@@ -65,7 +68,7 @@
       <button data-sub="cohortes">Indicador e informe de cohortes</button>
       <button data-sub="usuarios">Dispensaciones por usuario</button>
       <button data-sub="inactivas">Dispensas inactivas</button>
-      <button data-sub="moleculas">Top 10 moléculas</button>
+      <button data-sub="moleculas">Top 10 artículos</button>
       <button data-sub="eficiencia">Eficiencia por líneas</button>
     </div>
     <!-- ===== DISPENSA ===== -->
@@ -232,13 +235,13 @@
 
     <!-- ===== TOP 10 MOLÉCULAS ===== -->
     <div class="subview" id="sub-moleculas">
-      <div class="helpbox">Ranking de las <b>10 moléculas (medicamentos) con más unidades entregadas</b>, respetando los filtros globales (zona, departamento, bodega, EPS, contrato) y considerando solo líneas de dispensas <b>activas</b>. «Und. entregadas» suma la columna <b>Cantidad entregada</b>; «Líneas» cuenta las líneas con entrega registrada. Descarga el detalle en Excel.</div>
-      <div class="toolbar"><button class="btn btn-export" id="btnExpMoleculas">⬇ Descargar top 10 moléculas (Excel)</button></div>
+      <div class="helpbox">Ranking de los <b>10 códigos de artículo con más unidades entregadas</b>, respetando los filtros globales (zona, departamento, bodega, EPS, contrato). Solo cuentan las líneas <b>entregadas</b>: <b>Unidades &gt; 0</b> y <b>Diferencia = 0</b>, de dispensas <b>activas</b>. Se agrupa por <b>Código de Artículo</b> y se muestra la <b>Descripción por DCI</b>, el número de líneas y las unidades entregadas. La bodega se controla desde el buscador global. Descarga el detalle en Excel.</div>
+      <div class="toolbar"><button class="btn btn-export" id="btnExpMoleculas">⬇ Descargar top 10 artículos (Excel)</button></div>
       <div class="stat-row" id="statsMoleculas"></div>
       <div class="table-wrap">
         <table class="data" id="tblMoleculas">
           <thead><tr>
-            <th>#</th><th>Molécula / Medicamento</th><th>Código(s)</th><th>Und. entregadas</th><th>Líneas</th><th>Bodegas</th>
+            <th>#</th><th>Código de Artículo</th><th>Descripción por DCI</th><th>Líneas</th><th>Und. entregadas</th>
           </tr></thead><tbody></tbody>
         </table>
       </div>
@@ -246,7 +249,7 @@
 
     <!-- ===== EFICIENCIA POR LÍNEAS ===== -->
     <div class="subview" id="sub-eficiencia">
-      <div class="helpbox">Eficiencia a nivel de <b>línea</b> (no de dispensa) sobre las líneas <b>activas</b> filtradas. Una línea está <b>entregada</b> si tiene unidades entregadas y sin faltante (Diferencia ≥ 0 y entregado &gt; 0); <b>pendiente</b> si Diferencia &lt; 0; <b>otras</b> si no hay faltante pero tampoco unidades entregadas. <b>Sin Homologar</b> = líneas cuya bodega no cruza con una zona del maestro.</div>
+      <div class="helpbox">Eficiencia a nivel de <b>línea</b> (no de dispensa) sobre las líneas <b>activas</b> filtradas. Una línea está <b>entregada</b> cuando <b>Unidades &gt; 0 y Diferencia = 0</b>; <b>pendiente</b> si Diferencia &lt; 0; <b>otras</b> si no hay faltante pero tampoco unidades entregadas. <b>Sin Homologar</b> = líneas cuya bodega no cruza con una zona del maestro.</div>
       <div class="toolbar"><button class="btn btn-export" id="btnExpEficiencia">⬇ Descargar eficiencia por líneas (Excel)</button></div>
       <div class="stat-row" id="statsEficiencia"></div>
       <div class="grid-2">
