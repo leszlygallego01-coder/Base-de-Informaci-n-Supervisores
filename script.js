@@ -1226,12 +1226,188 @@ function expInactivas(){
    ================================================================ */
 var TAB_ACTUAL='dispensa';
 
+/* Donut SVG de N segmentos (entregadas / pendientes / otras) */
+function donutN(svg, segs, centerTxt){
+  svg.innerHTML='';
+  var cx=100, cy=100, r=70, sw=30, ns='http://www.w3.org/2000/svg', C=2*Math.PI*r;
+  var any = segs.some(function(s){ return s.frac>0; });
+  if(!any){
+    var bg=document.createElementNS(ns,'circle');
+    bg.setAttribute('cx',cx); bg.setAttribute('cy',cy); bg.setAttribute('r',r);
+    bg.setAttribute('fill','none'); bg.setAttribute('stroke','#e2e8f0'); bg.setAttribute('stroke-width',sw);
+    svg.appendChild(bg);
+  } else {
+    var off=0;
+    segs.forEach(function(s){
+      if(s.frac<=0) return;
+      var c=document.createElementNS(ns,'circle');
+      c.setAttribute('cx',cx); c.setAttribute('cy',cy); c.setAttribute('r',r);
+      c.setAttribute('fill','none'); c.setAttribute('stroke',s.color); c.setAttribute('stroke-width',sw);
+      c.setAttribute('stroke-dasharray',(C*s.frac)+' '+(C*(1-s.frac)));
+      c.setAttribute('stroke-dashoffset',(-C*off));
+      c.setAttribute('transform','rotate(-90 '+cx+' '+cy+')');
+      svg.appendChild(c); off+=s.frac;
+    });
+  }
+  var t=document.createElementNS(ns,'text');
+  t.setAttribute('x',cx); t.setAttribute('y',cy+9); t.setAttribute('text-anchor','middle');
+  t.setAttribute('class','pie-center-label'); t.textContent=centerTxt;
+  svg.appendChild(t);
+}
+
+/* ================================================================
+   RENDER — TOP 10 MOLÉCULAS ENTREGADAS (respeta filtros)
+   ================================================================ */
+var MOL_CACHE=[], MOL_TOT={};
+function renderMoleculas(){
+  var lineas = soloActivas(aplicarFiltros(RAW));
+  var map={};
+  lineas.forEach(function(o){
+    var ent = toNum(o.entregado);
+    if(ent<=0) return; // solo líneas con unidades entregadas
+    var nombre = o.descripcion || 'SIN DESCRIPCIÓN';
+    var k = sinAcentos(nombre);
+    if(!map[k]) map[k]={ nombre:nombre, codigos:{}, und:0, lineas:0, bodegas:{} };
+    map[k].und += ent; map[k].lineas++;
+    if(o.codigo) map[k].codigos[o.codigo]=1;
+    if(o.bodega) map[k].bodegas[o.bodega]=1;
+  });
+  var arr = Object.keys(map).map(function(k){ var m=map[k];
+    return { nombre:m.nombre, codigo:Object.keys(m.codigos).slice(0,3).join(', '),
+      und:m.und, lineas:m.lineas, bodegas:Object.keys(m.bodegas).length }; })
+    .sort(function(a,b){ return b.und-a.und || b.lineas-a.lineas; });
+  var top = arr.slice(0,10);
+  var totUnd = arr.reduce(function(s,m){ return s+m.und; },0);
+  var topUnd = top.reduce(function(s,m){ return s+m.und; },0);
+  var topLin = top.reduce(function(s,m){ return s+m.lineas; },0);
+
+  $('#statsMoleculas').innerHTML =
+    statCard('Moléculas distintas', fmt(arr.length), 'con unidades entregadas') +
+    statCard('Unidades entregadas', fmt(totUnd), 'total líneas activas filtradas') +
+    statCard('Top 10 · unidades', fmt(topUnd), pct1(topUnd,totUnd)+'% del total entregado', false, pct(topUnd,totUnd)) +
+    statCard('Líneas del top 10', fmt(topLin), 'líneas con entrega');
+
+  var maxUnd = top.length?top[0].und:0;
+  var tb=$('#tblMoleculas tbody'); tb.innerHTML='';
+  if(!top.length){
+    tb.innerHTML='<tr><td colspan="6" class="muted" style="text-align:center;padding:18px">Sin moléculas entregadas con los filtros actuales.</td></tr>';
+  } else {
+    top.forEach(function(m,i){
+      var w = maxUnd>0?Math.round(m.und/maxUnd*100):0;
+      tb.insertAdjacentHTML('beforeend','<tr><td>'+(i+1)+'</td>'+
+        '<td class="txt wrapcell"><div class="molbar"><i style="width:'+w+'%"></i></div>'+m.nombre+'</td>'+
+        '<td class="txt">'+(m.codigo||'-')+'</td>'+
+        '<td>'+fmt(m.und)+'</td><td>'+fmt(m.lineas)+'</td><td>'+fmt(m.bodegas)+'</td></tr>');
+    });
+  }
+  MOL_CACHE=arr; MOL_TOT={ totUnd:totUnd, top:top };
+}
+
+/* ================================================================
+   RENDER — EFICIENCIA POR LÍNEAS (Bodega detalle y Zona + anillo)
+   ================================================================ */
+var EFI_BOD=[], EFI_ZON=[], EFI_TOT={};
+function clasifLinea(o){
+  var ent = toNum(o.entregado);
+  if(o.dif < 0) return 'pend';
+  if(ent > 0)   return 'entr';
+  return 'otra';
+}
+function renderEficienciaLineas(){
+  var lineas = soloActivas(aplicarFiltros(RAW));
+  var byBod={}, byZon={};
+  var totT=0, totE=0, totP=0, totO=0, totSH=0;
+  lineas.forEach(function(o){
+    var cls = clasifLinea(o);
+    var sh = (o.zona==='SIN ZONA' || !o.codBodega) ? 1 : 0;
+    totT++; totSH+=sh;
+    if(cls==='entr') totE++; else if(cls==='pend') totP++; else totO++;
+    var bk=o.bodega;
+    if(!byBod[bk]) byBod[bk]={ bodega:bk, zona:o.zona, total:0, entr:0, pend:0, otra:0, sh:0 };
+    var B=byBod[bk]; B.total++; B.sh+=sh;
+    if(cls==='entr')B.entr++; else if(cls==='pend')B.pend++; else B.otra++;
+    var zk=o.zona||'SIN ZONA';
+    if(!byZon[zk]) byZon[zk]={ zona:zk, total:0, entr:0, pend:0, otra:0, sh:0 };
+    var Z=byZon[zk]; Z.total++; Z.sh+=sh;
+    if(cls==='entr')Z.entr++; else if(cls==='pend')Z.pend++; else Z.otra++;
+  });
+  var rowsB=Object.keys(byBod).map(function(k){return byBod[k];}).sort(function(a,b){return b.total-a.total;});
+  var rowsZ=Object.keys(byZon).map(function(k){return byZon[k];}).sort(function(a,b){return b.total-a.total;});
+
+  $('#statsEficiencia').innerHTML =
+    statCard('Líneas totales', fmt(totT), 'activas filtradas') +
+    statCard('Entregadas', fmt(totE), pct1(totE,totT)+'% de cumplimiento', false, pct(totE,totT)) +
+    statCard('Pendientes', fmt(totP), pct1(totP,totT)+'% del total', totP>0) +
+    statCard('Sin homologar', fmt(totSH), totSH>0?'bodegas sin zona':'todo homologado', totSH>0);
+
+  var tz=$('#tblEficienciaZona tbody'); tz.innerHTML='';
+  rowsZ.forEach(function(r){ var ef=pct1(r.entr,r.total);
+    tz.insertAdjacentHTML('beforeend','<tr><td class="txt wrapcell">'+r.zona+'</td><td>'+fmt(r.total)+'</td><td>'+fmt(r.entr)+'</td><td>'+fmt(r.pend)+'</td><td class="'+pctCls(ef)+'">'+ef+'%</td><td>'+fmt(r.sh)+'</td></tr>');
+  });
+  tz.insertAdjacentHTML('beforeend','<tr class="total-row"><td class="txt">TOTAL</td><td>'+fmt(totT)+'</td><td>'+fmt(totE)+'</td><td>'+fmt(totP)+'</td><td>'+pct1(totE,totT)+'%</td><td>'+fmt(totSH)+'</td></tr>');
+
+  var tbod=$('#tblEficienciaBodega tbody'); tbod.innerHTML='';
+  rowsB.forEach(function(r){ var ef=pct1(r.entr,r.total);
+    tbod.insertAdjacentHTML('beforeend','<tr><td class="txt wrapcell">'+r.zona+'</td><td class="txt wrapcell">'+r.bodega+'</td><td>'+fmt(r.total)+'</td><td>'+fmt(r.entr)+'</td><td>'+fmt(r.pend)+'</td><td class="'+pctCls(ef)+'">'+ef+'%</td><td>'+fmt(r.sh)+'</td></tr>');
+  });
+  tbod.insertAdjacentHTML('beforeend','<tr class="total-row"><td class="txt">TOTAL</td><td></td><td>'+fmt(totT)+'</td><td>'+fmt(totE)+'</td><td>'+fmt(totP)+'</td><td>'+pct1(totE,totT)+'%</td><td>'+fmt(totSH)+'</td></tr>');
+
+  var sel=$('#pieEficienciaSelect');
+  var vals=['(General) Todas las bodegas'].concat(rowsB.map(function(r){return r.bodega;}));
+  sel.innerHTML=vals.map(function(v){return '<option>'+v+'</option>';}).join('');
+  function pintar(){
+    var e,p,o;
+    if(sel.selectedIndex<=0){ e=totE; p=totP; o=totO; }
+    else { var r=byBod[sel.value]; if(!r){ e=totE;p=totP;o=totO; } else { e=r.entr; p=r.pend; o=r.otra; } }
+    var tt=e+p+o;
+    donutN($('#pieEficiencia'),[
+      { frac: tt>0?e/tt:0, color:'#10b981' },
+      { frac: tt>0?p/tt:0, color:'#f59e0b' },
+      { frac: tt>0?o/tt:0, color:'#94a3b8' }
+    ], pct1(e,tt)+'%');
+    legend($('#pieEficienciaLegend'),[
+      { c:'#10b981', l:'% Líneas entregadas', v:pct1(e,tt)+'%' },
+      { c:'#f59e0b', l:'% Líneas pendientes', v:pct1(p,tt)+'%' },
+      { c:'#94a3b8', l:'% Otras líneas',      v:pct1(o,tt)+'%' }
+    ]);
+    $('#pieEficienciaNota').innerHTML='Total líneas: <b>'+fmt(tt)+'</b> · entregadas: <b>'+fmt(e)+'</b> · pendientes: <b>'+fmt(p)+'</b> · otras: <b>'+fmt(o)+'</b> <span class="muted">(sin faltante y sin unidades entregadas)</span>';
+  }
+  sel.onchange=pintar; pintar();
+  EFI_BOD=rowsB; EFI_ZON=rowsZ; EFI_TOT={ totT:totT, totE:totE, totP:totP, totO:totO, totSH:totSH };
+}
+
+/* Exportaciones de las nuevas secciones */
+function expMoleculas(){
+  var head=['#','Molécula / Medicamento','Código(s)','Unidades entregadas','Líneas','Bodegas'];
+  var top=(MOL_TOT.top||[]).map(function(m,i){ return [i+1, m.nombre, m.codigo||'', m.und, m.lineas, m.bodegas]; });
+  var headAll=['Molécula / Medicamento','Código(s)','Unidades entregadas','Líneas','Bodegas'];
+  var all=MOL_CACHE.map(function(m){ return [m.nombre, m.codigo||'', m.und, m.lineas, m.bodegas]; });
+  exportar('top10_moleculas_entregadas.xlsx',[
+    { name:'Top 10', data:[head].concat(top) },
+    { name:'Ranking completo', data:[headAll].concat(all) }
+  ]);
+}
+function expEficiencia(){
+  var hz=['Zona','Total líneas','Entregadas','Pendientes','% Cumplimiento','Sin Homologar'];
+  var rz=EFI_ZON.map(function(r){ return [r.zona, r.total, r.entr, r.pend, pct1(r.entr,r.total), r.sh]; });
+  rz.push(['TOTAL', EFI_TOT.totT, EFI_TOT.totE, EFI_TOT.totP, pct1(EFI_TOT.totE,EFI_TOT.totT), EFI_TOT.totSH]);
+  var hb=['Zona','Bodega','Total líneas','Entregadas','Pendientes','% Cumplimiento','Sin Homologar'];
+  var rb=EFI_BOD.map(function(r){ return [r.zona, r.bodega, r.total, r.entr, r.pend, pct1(r.entr,r.total), r.sh]; });
+  rb.push(['TOTAL','', EFI_TOT.totT, EFI_TOT.totE, EFI_TOT.totP, pct1(EFI_TOT.totE,EFI_TOT.totT), EFI_TOT.totSH]);
+  exportar('eficiencia_por_lineas.xlsx',[
+    { name:'Por zona', data:[hz].concat(rz) },
+    { name:'Por bodega', data:[hb].concat(rb) }
+  ]);
+}
+
 function renderTodo(){
   renderDispensa();
   renderSoporte();
   renderCohortes();
   renderUsuarios();
   renderInactivas();
+  renderMoleculas();
+  renderEficienciaLineas();
 }
 
 function poblarFiltrosGlobales(){
@@ -1438,6 +1614,8 @@ function initEventos(){
   $('#btnExpCohortes').addEventListener('click', function(){ if(RAW.length) expCohortes(); });
   $('#btnExpInactivas').addEventListener('click', function(){ if(RAW.length) expInactivas(); });
   $('#btnExpUsuarios').addEventListener('click', function(){ if(RAW.length) expUsuarios(); });
+  $('#btnExpMoleculas').addEventListener('click', function(){ if(RAW.length) expMoleculas(); });
+  $('#btnExpEficiencia').addEventListener('click', function(){ if(RAW.length) expEficiencia(); });
 }
 
 document.addEventListener('DOMContentLoaded', initEventos);
