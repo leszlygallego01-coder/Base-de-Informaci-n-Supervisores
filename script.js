@@ -9,7 +9,7 @@
 var RAW = [];        // filas enriquecidas (nivel línea) — acumuladas de todos los archivos
 var META = { archivo:'', fecha:'', filasCrudas:0, filasUsadas:0 };
 var ARCHIVOS = [];   // {nombre, lineas, disp, bodegas} por archivo cargado
-var FILTROS = { bodega:'', eps:'', depto:'', zona:'', contrato:'' };
+var FILTROS = { bodega:'', eps:'', depto:'', zona:'', contrato:'', desde:'', hasta:'', mes:'' };
 
 /* ---------- Utilidades DOM ---------- */
 function $(s,c){ return (c||document).querySelector(s); }
@@ -39,8 +39,8 @@ var ALIASES = {
   sigla:          ['SIGLA COMERCIAL','SIGLA','SIGLA EPS','SIGLA ENTIDAD'],
   eps:            ['EPS','ENTIDAD','ASEGURADOR','ASEGURADORA','ENTIDAD RESPONSABLE','PAGADOR'],
   diferencia:     ['DIFERENCIA','DIF','SALDO DIFERENCIA'],
-  entregado:      ['CANTIDAD ENTREGADA','CANT ENTREGADA','ENTREGADO','UNIDADES ENTREGADAS','CANTIDAD DISPENSADA','DISPENSADO'],
-  formulado:      ['CANTIDAD FORMULADA','CANT FORMULADA','FORMULADO','UNIDADES FORMULADAS','CANTIDAD ORDENADA','PRESCRITO','CANTIDAD PRESCRITA'],
+  entregado:      ['CANTIDAD ENTREGADA','CANT ENTREGADA','UNIDADES ENTREGADAS','ENTREGADO','UNIDADES','CANTIDAD DISPENSADA','DISPENSADO'],
+  formulado:      ['CANTIDAD FORMULADA','CANT FORMULADA','FORMULADO','UNIDADES FORMULADAS','CANTIDAD ORDENADA','CANTIDAD PRESCRITA','PRESCRITO','CANTIDAD PRE'],
   soporte:        ['CANTIDAD SOPORTES','CANTIDAD SOPORTE','CANT SOPORTES','CANT SOPORTE','SOPORTE','TIENE SOPORTE','SOPORTE EVENTO','NRO SOPORTE','NUMERO SOPORTE','NO SOPORTE','NUMERO SOPORTE EVENTO'],
   codigo:         ['CODIGO','CODIGO MEDICAMENTO','COD MEDICAMENTO','CUM','COD PRODUCTO','CODIGO PRODUCTO','COD','CODIGO ARTICULO'],
   descripcion:    ['DESCRIPCION','DESCRIPCION MEDICAMENTO','MEDICAMENTO','PRODUCTO','DESCRIPCION PRODUCTO','NOMBRE MEDICAMENTO','ARTICULO','DESCRIPCION ARTICULO'],
@@ -531,12 +531,23 @@ function enriquecer(objs){
 
 /* ---------- Agrupaciones ---------- */
 function aplicarFiltros(lineas){
+  // Rango de fechas (YYYY-MM-DD de los <input type="date">)
+  var dDesde = FILTROS.desde ? new Date(FILTROS.desde+'T00:00:00') : null;
+  var dHasta = FILTROS.hasta ? new Date(FILTROS.hasta+'T23:59:59') : null;
   return lineas.filter(function(o){
     if(FILTROS.bodega && sinAcentos(o.bodega).indexOf(sinAcentos(FILTROS.bodega))<0) return false;
     if(FILTROS.eps && o.eps!==FILTROS.eps) return false;
     if(FILTROS.depto && o.depto!==FILTROS.depto) return false;
     if(FILTROS.zona && o.zona!==FILTROS.zona) return false;
     if(FILTROS.contrato && o.contrato!==FILTROS.contrato) return false;
+    // Filtro por mes (YYYY-MM). Si la línea no tiene fecha, se excluye cuando hay filtro de mes.
+    if(FILTROS.mes){ if(mesKey(o.fechaDate)!==FILTROS.mes) return false; }
+    // Filtro por rango de fechas. Si la línea no tiene fecha, se excluye cuando hay rango activo.
+    if(dDesde || dHasta){
+      if(!o.fechaDate) return false;
+      if(dDesde && o.fechaDate < dDesde) return false;
+      if(dHasta && o.fechaDate > dHasta) return false;
+    }
     return true;
   });
 }
@@ -1256,7 +1267,10 @@ function donutN(svg, segs, centerTxt){
 }
 
 /* ================================================================
-   RENDER — TOP 10 MOLÉCULAS ENTREGADAS (respeta filtros)
+   RENDER — TOP 10 CÓDIGOS DE ARTÍCULO MÁS ENTREGADOS (respeta filtros)
+   Criterio de línea entregada: Unidades > 0 Y Diferencia = 0.
+   Agrupa por Código de Artículo; muestra Descripción por DCI, # de líneas
+   y unidades entregadas. (La bodega se controla con el buscador global.)
    ================================================================ */
 var MOL_CACHE=[], MOL_TOT={};
 function renderMoleculas(){
@@ -1264,43 +1278,42 @@ function renderMoleculas(){
   var map={};
   lineas.forEach(function(o){
     var ent = toNum(o.entregado);
-    if(ent<=0) return; // solo líneas con unidades entregadas
-    var nombre = o.descripcion || 'SIN DESCRIPCIÓN';
-    var k = sinAcentos(nombre);
-    if(!map[k]) map[k]={ nombre:nombre, codigos:{}, und:0, lineas:0, bodegas:{} };
+    // Solo líneas entregadas: unidades > 0 y Diferencia = 0.
+    if(!(ent>0 && o.dif===0)) return;
+    var cod = o.codigo || 'SIN CÓDIGO';
+    var k = sinAcentos(cod);
+    if(!map[k]) map[k]={ codigo:cod, descripcion:o.descripcion||'', und:0, lineas:0 };
     map[k].und += ent; map[k].lineas++;
-    if(o.codigo) map[k].codigos[o.codigo]=1;
-    if(o.bodega) map[k].bodegas[o.bodega]=1;
+    if(!map[k].descripcion && o.descripcion) map[k].descripcion=o.descripcion;
   });
-  var arr = Object.keys(map).map(function(k){ var m=map[k];
-    return { nombre:m.nombre, codigo:Object.keys(m.codigos).slice(0,3).join(', '),
-      und:m.und, lineas:m.lineas, bodegas:Object.keys(m.bodegas).length }; })
+  var arr = Object.keys(map).map(function(k){ return map[k]; })
     .sort(function(a,b){ return b.und-a.und || b.lineas-a.lineas; });
   var top = arr.slice(0,10);
   var totUnd = arr.reduce(function(s,m){ return s+m.und; },0);
+  var totLin = arr.reduce(function(s,m){ return s+m.lineas; },0);
   var topUnd = top.reduce(function(s,m){ return s+m.und; },0);
   var topLin = top.reduce(function(s,m){ return s+m.lineas; },0);
 
   $('#statsMoleculas').innerHTML =
-    statCard('Moléculas distintas', fmt(arr.length), 'con unidades entregadas') +
-    statCard('Unidades entregadas', fmt(totUnd), 'total líneas activas filtradas') +
+    statCard('Artículos distintos', fmt(arr.length), 'entregados (dif = 0)') +
+    statCard('Unidades entregadas', fmt(totUnd), 'total líneas entregadas') +
     statCard('Top 10 · unidades', fmt(topUnd), pct1(topUnd,totUnd)+'% del total entregado', false, pct(topUnd,totUnd)) +
-    statCard('Líneas del top 10', fmt(topLin), 'líneas con entrega');
+    statCard('Líneas del top 10', fmt(topLin), 'de '+fmt(totLin)+' líneas entregadas');
 
   var maxUnd = top.length?top[0].und:0;
   var tb=$('#tblMoleculas tbody'); tb.innerHTML='';
   if(!top.length){
-    tb.innerHTML='<tr><td colspan="6" class="muted" style="text-align:center;padding:18px">Sin moléculas entregadas con los filtros actuales.</td></tr>';
+    tb.innerHTML='<tr><td colspan="5" class="muted" style="text-align:center;padding:18px">Sin artículos entregados (Unidades &gt; 0 y Diferencia = 0) con los filtros actuales.</td></tr>';
   } else {
     top.forEach(function(m,i){
       var w = maxUnd>0?Math.round(m.und/maxUnd*100):0;
       tb.insertAdjacentHTML('beforeend','<tr><td>'+(i+1)+'</td>'+
-        '<td class="txt wrapcell"><div class="molbar"><i style="width:'+w+'%"></i></div>'+m.nombre+'</td>'+
-        '<td class="txt">'+(m.codigo||'-')+'</td>'+
-        '<td>'+fmt(m.und)+'</td><td>'+fmt(m.lineas)+'</td><td>'+fmt(m.bodegas)+'</td></tr>');
+        '<td class="txt">'+m.codigo+'</td>'+
+        '<td class="txt wrapcell"><div class="molbar"><i style="width:'+w+'%"></i></div>'+(m.descripcion||'-')+'</td>'+
+        '<td>'+fmt(m.lineas)+'</td><td>'+fmt(m.und)+'</td></tr>');
     });
   }
-  MOL_CACHE=arr; MOL_TOT={ totUnd:totUnd, top:top };
+  MOL_CACHE=arr; MOL_TOT={ totUnd:totUnd, totLin:totLin, top:top };
 }
 
 /* ================================================================
@@ -1310,7 +1323,7 @@ var EFI_BOD=[], EFI_ZON=[], EFI_TOT={};
 function clasifLinea(o){
   var ent = toNum(o.entregado);
   if(o.dif < 0) return 'pend';
-  if(ent > 0)   return 'entr';
+  if(o.dif === 0 && ent > 0) return 'entr';
   return 'otra';
 }
 function renderEficienciaLineas(){
@@ -1378,11 +1391,11 @@ function renderEficienciaLineas(){
 
 /* Exportaciones de las nuevas secciones */
 function expMoleculas(){
-  var head=['#','Molécula / Medicamento','Código(s)','Unidades entregadas','Líneas','Bodegas'];
-  var top=(MOL_TOT.top||[]).map(function(m,i){ return [i+1, m.nombre, m.codigo||'', m.und, m.lineas, m.bodegas]; });
-  var headAll=['Molécula / Medicamento','Código(s)','Unidades entregadas','Líneas','Bodegas'];
-  var all=MOL_CACHE.map(function(m){ return [m.nombre, m.codigo||'', m.und, m.lineas, m.bodegas]; });
-  exportar('top10_moleculas_entregadas.xlsx',[
+  var head=['#','Código de Artículo','Descripción por DCI','Líneas','Unidades entregadas'];
+  var top=(MOL_TOT.top||[]).map(function(m,i){ return [i+1, m.codigo, m.descripcion||'', m.lineas, m.und]; });
+  var headAll=['Código de Artículo','Descripción por DCI','Líneas','Unidades entregadas'];
+  var all=MOL_CACHE.map(function(m){ return [m.codigo, m.descripcion||'', m.lineas, m.und]; });
+  exportar('top10_articulos_entregados.xlsx',[
     { name:'Top 10', data:[head].concat(top) },
     { name:'Ranking completo', data:[headAll].concat(all) }
   ]);
@@ -1428,6 +1441,28 @@ function poblarFiltrosGlobales(){
   // Datalist de bodegas: lista + buscador a la vez
   var dl=$('#bodegaList');
   if(dl){ dl.innerHTML=Object.keys(bodegas).sort().map(function(v){return '<option value="'+v.replace(/"/g,'&quot;')+'"></option>';}).join(''); }
+  // Filtro de MES (YYYY-MM) y rango de fechas disponibles
+  var mesesSet={}, fMin=null, fMax=null;
+  RAW.forEach(function(o){
+    if(o.fechaDate){
+      var k=mesKey(o.fechaDate); if(k) mesesSet[k]=1;
+      if(!fMin||o.fechaDate<fMin) fMin=o.fechaDate;
+      if(!fMax||o.fechaDate>fMax) fMax=o.fechaDate;
+    }
+  });
+  var selMes=$('#fMes');
+  if(selMes){
+    var meses=Object.keys(mesesSet).sort();
+    selMes.innerHTML='<option value="">Todos los meses</option>'+
+      meses.map(function(k){ return '<option value="'+k+'">'+mesLabel(k)+'</option>'; }).join('');
+  }
+  // Sugerir min/max en los selectores de fecha (no obligatorio)
+  var inD=$('#fDesde'), inH=$('#fHasta');
+  if(inD && inH){
+    if(fMin && fMax){ var mn=fmtFecha(fMin), mx=fmtFecha(fMax);
+      inD.min=mn; inD.max=mx; inH.min=mn; inH.max=mx;
+    } else { inD.removeAttribute('min'); inD.removeAttribute('max'); inH.removeAttribute('min'); inH.removeAttribute('max'); }
+  }
 }
 
 function mostrarReporteLimpieza(rep, mapa){
@@ -1555,7 +1590,7 @@ function quitarArchivo(idx){
 
 function vaciarDatos(){
   RAW=[]; ARCHIVOS=[]; META={ archivo:'', fecha:'', filasCrudas:0, filasUsadas:0 };
-  FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:''};
+  FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:'',desde:'',hasta:'',mes:''};
   $('#loadedFiles').style.display='none'; $('#loadedFiles').innerHTML='';
   $('#cleanReport').style.display='none';
   $('#filtersCard').style.display='none'; $('#viewerCard').style.display='none';
@@ -1588,12 +1623,17 @@ function initEventos(){
   function onFiltro(){ if(!RAW.length) return;
     FILTROS.bodega=$('#fBodega').value; FILTROS.eps=$('#fEps').value;
     FILTROS.depto=$('#fDepto').value; FILTROS.zona=$('#fZona').value;
-    FILTROS.contrato=$('#fContrato').value; renderTodo(); }
+    FILTROS.contrato=$('#fContrato').value;
+    FILTROS.desde=$('#fDesde')?$('#fDesde').value:'';
+    FILTROS.hasta=$('#fHasta')?$('#fHasta').value:'';
+    FILTROS.mes=$('#fMes')?$('#fMes').value:'';
+    renderTodo(); }
   $('#fBodega').addEventListener('input', onFiltro);
-  ['#fEps','#fDepto','#fZona','#fContrato'].forEach(function(s){ $(s).addEventListener('change', onFiltro); });
+  ['#fEps','#fDepto','#fZona','#fContrato','#fDesde','#fHasta','#fMes'].forEach(function(s){ var e=$(s); if(e) e.addEventListener('change', onFiltro); });
   $('#btnLimpiar').addEventListener('click', function(){
     $('#fBodega').value=''; $('#fEps').value=''; $('#fDepto').value=''; $('#fZona').value=''; $('#fContrato').value='';
-    FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:''}; renderTodo();
+    if($('#fDesde')) $('#fDesde').value=''; if($('#fHasta')) $('#fHasta').value=''; if($('#fMes')) $('#fMes').value='';
+    FILTROS={bodega:'',eps:'',depto:'',zona:'',contrato:'',desde:'',hasta:'',mes:''}; renderTodo();
   });
 
   // Filtros cohortes / inactivas
